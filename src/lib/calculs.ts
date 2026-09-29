@@ -1,0 +1,181 @@
+// Calculs financiers d'une commande. Module pur (sans accès base), utilisé
+// côté serveur et côté client (calcul en direct dans le formulaire).
+// Toutes les opérations passent par decimal.js : jamais de float.
+
+import Decimal from "decimal.js";
+
+export type DecimalLike = Decimal.Value | { toString(): string } | null | undefined;
+export type DeviseCode = "MGA" | "USD" | "CNY";
+export type FraisTypeCode = "POURCENTAGE" | "FIXE";
+
+/** Convertit une valeur (string, number, Prisma.Decimal…) en Decimal, ou null si vide. */
+export function dec(value: DecimalLike): Decimal | null {
+  if (value === null || value === undefined) return null;
+  const str = typeof value === "object" ? value.toString() : String(value);
+  if (str.trim() === "") return null;
+  try {
+    const d = new Decimal(str.replace(/[\s  ]/g, "").replace(",", "."));
+    return d.isFinite() ? d : null;
+  } catch {
+    return null;
+  }
+}
+
+function dec0(value: DecimalLike): Decimal {
+  return dec(value) ?? new Decimal(0);
+}
+
+export function arrondi2(value: Decimal): Decimal {
+  return value.toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
+}
+
+export type ArticleCalcul = { quantite: DecimalLike; prixUnitaireCny: DecimalLike };
+
+export function totalLigneCny(article: ArticleCalcul): Decimal {
+  return dec0(article.quantite).mul(dec0(article.prixUnitaireCny));
+}
+
+export function montantArticlesCny(articles: ArticleCalcul[]): Decimal {
+  return articles.reduce((acc, a) => acc.add(totalLigneCny(a)), new Decimal(0));
+}
+
+/** Frais d'application calculés à partir de la configuration de l'application. */
+export function calculerFraisApp(
+  fraisType: FraisTypeCode,
+  fraisValeur: DecimalLike,
+  montantCny: DecimalLike,
+): Decimal {
+  const valeur = dec0(fraisValeur);
+  if (fraisType === "FIXE") return arrondi2(valeur);
+  return arrondi2(dec0(montantCny).mul(valeur).div(100));
+}
+
+/** Estimation des frais transitaire depuis ses tarifs (au kg et/ou au m³ : on retient le plus élevé). */
+export function estimerFraisTransitaire(
+  tarifs: { tarifParKg: DecimalLike; tarifParM3: DecimalLike },
+  poidsKg: DecimalLike,
+  volumeM3: DecimalLike,
+): Decimal | null {
+  const candidats: Decimal[] = [];
+  const tarifKg = dec(tarifs.tarifParKg);
+  const tarifM3 = dec(tarifs.tarifParM3);
+  const poids = dec(poidsKg);
+  const volume = dec(volumeM3);
+  if (tarifKg && poids) candidats.push(tarifKg.mul(poids));
+  if (tarifM3 && volume) candidats.push(tarifM3.mul(volume));
+  if (candidats.length === 0) return null;
+  return arrondi2(Decimal.max(...candidats));
+}
+
+export type StatutTotal = "DEFINITIF" | "ESTIME" | "INCOMPLET";
+
+export type CommandeCalculInput = {
+  montantArticlesCny: DecimalLike;
+  fraisAppCny: DecimalLike;
+  fraisLivraisonCny: DecimalLike;
+  tauxCnyMga: DecimalLike;
+  fraisTransitaireEstime: DecimalLike;
+  fraisTransitaireReel: DecimalLike;
+  deviseTransitaire: DeviseCode;
+  tauxDeviseTransitaireMga: DecimalLike;
+  articles?: (ArticleCalcul & { id?: string; nom?: string })[];
+};
+
+export type CoutArticle = {
+  id?: string;
+  nom?: string;
+  quantite: Decimal;
+  totalLigneCny: Decimal;
+  totalLigneMga: Decimal;
+  fraisRepartisMga: Decimal;
+  coutRevientLigneMga: Decimal;
+  coutRevientUnitaireMga: Decimal;
+};
+
+export type CommandeCalcul = {
+  sousTotalCny: Decimal;
+  sousTotalMga: Decimal;
+  /** Montant transitaire retenu (réel sinon estimé), dans sa devise d'origine */
+  fraisTransitaireDevise: Decimal | null;
+  fraisTransitaireMga: Decimal | null;
+  /** Taux utilisé pour convertir les frais transitaire vers MGA */
+  tauxTransitaireUtilise: Decimal | null;
+  coutTotalMga: Decimal;
+  statutTotal: StatutTotal;
+  coutsArticles: CoutArticle[];
+};
+
+/**
+ * Calcule sous-totaux, frais transitaire convertis, total et coût de revient par article.
+ * @param tauxActuels taux du jour, utilisés en secours si la commande n'a pas de taux transitaire enregistré
+ */
+export function calculerCommande(
+  c: CommandeCalculInput,
+  tauxActuels?: Partial<Record<DeviseCode, DecimalLike>>,
+): CommandeCalcul {
+  const tauxCny = dec0(c.tauxCnyMga);
+  const montantArticles = dec0(c.montantArticlesCny);
+  const fraisApp = dec0(c.fraisAppCny);
+  const fraisLivraison = dec0(c.fraisLivraisonCny);
+
+  const sousTotalCny = montantArticles.add(fraisApp).add(fraisLivraison);
+  const sousTotalMga = sousTotalCny.mul(tauxCny);
+
+  const reel = dec(c.fraisTransitaireReel);
+  const estime = dec(c.fraisTransitaireEstime);
+  const fraisTransitaireDevise = reel ?? estime;
+  const statutTotal: StatutTotal = reel ? "DEFINITIF" : estime ? "ESTIME" : "INCOMPLET";
+
+  let tauxTransitaireUtilise: Decimal | null = null;
+  if (c.deviseTransitaire === "MGA") tauxTransitaireUtilise = new Decimal(1);
+  else
+    tauxTransitaireUtilise =
+      dec(c.tauxDeviseTransitaireMga) ??
+      (c.deviseTransitaire === "CNY" ? tauxCny : null) ??
+      dec(tauxActuels?.[c.deviseTransitaire]);
+
+  const fraisTransitaireMga =
+    fraisTransitaireDevise && tauxTransitaireUtilise
+      ? fraisTransitaireDevise.mul(tauxTransitaireUtilise)
+      : null;
+
+  const coutTotalMga = sousTotalMga.add(fraisTransitaireMga ?? 0);
+
+  // Répartition proportionnelle à la valeur de chaque ligne (ou à la quantité si valeur nulle)
+  const articles = c.articles ?? [];
+  const fraisTotalMga = fraisApp.add(fraisLivraison).mul(tauxCny).add(fraisTransitaireMga ?? 0);
+  const baseValeur = montantArticlesCny(articles);
+  const baseQuantite = articles.reduce((acc, a) => acc.add(dec0(a.quantite)), new Decimal(0));
+
+  const coutsArticles: CoutArticle[] = articles.map((a) => {
+    const quantite = dec0(a.quantite);
+    const ligneCny = totalLigneCny(a);
+    const ligneMga = ligneCny.mul(tauxCny);
+    let part = new Decimal(0);
+    if (baseValeur.gt(0)) part = ligneCny.div(baseValeur);
+    else if (baseQuantite.gt(0)) part = quantite.div(baseQuantite);
+    const fraisRepartis = fraisTotalMga.mul(part);
+    const coutLigne = ligneMga.add(fraisRepartis);
+    return {
+      id: a.id,
+      nom: a.nom,
+      quantite,
+      totalLigneCny: ligneCny,
+      totalLigneMga: ligneMga,
+      fraisRepartisMga: fraisRepartis,
+      coutRevientLigneMga: coutLigne,
+      coutRevientUnitaireMga: quantite.gt(0) ? coutLigne.div(quantite) : new Decimal(0),
+    };
+  });
+
+  return {
+    sousTotalCny,
+    sousTotalMga,
+    fraisTransitaireDevise,
+    fraisTransitaireMga,
+    tauxTransitaireUtilise,
+    coutTotalMga,
+    statutTotal,
+    coutsArticles,
+  };
+}

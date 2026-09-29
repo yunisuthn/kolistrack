@@ -1,0 +1,22 @@
+# Blueprint Render : https://render.com/docs/blueprint-spec
+services:
+  - type: web
+    name: kolistrack
+    runtime: node
+    plan: free
+    region: frankfurt
+    # Les migrations sont appliquées au build (la "pre-deploy command" est réservée aux plans payants)
+    buildCommand: npm ci && npx prisma migrate deploy && npm run build
+    startCommand: npm start
+    healthCheckPath: /login
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: DATABASE_URL
+        sync: false
+      - key: DIRECT_URL
+        sync: false
+      - key: APP_PASSWORD
+        sync: false
+      - key: SESSION_SECRET
+        generateValue: true

@@ -1,0 +1,125 @@
+// Schéma KolisTrack — suivi des commandes Chine → transitaire → Madagascar
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum FraisType {
+  POURCENTAGE
+  FIXE
+}
+
+enum Devise {
+  MGA
+  USD
+  CNY
+}
+
+enum StatutCommande {
+  COMMANDEE
+  EXPEDIEE_VERS_TRANSITAIRE
+  CHEZ_TRANSITAIRE
+  EN_TRANSIT
+  ARRIVEE
+  RECUPEREE
+  ANNULEE
+}
+
+model Application {
+  id          String    @id @default(cuid())
+  nom         String    @unique
+  fraisType   FraisType @default(POURCENTAGE)
+  // Pourcentage (ex. 3.5 pour 3,5 %) ou montant fixe en CNY
+  fraisValeur Decimal   @default(0) @db.Decimal(12, 2)
+  actif       Boolean   @default(true)
+  commandes   Commande[]
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+model Transitaire {
+  id         String    @id @default(cuid())
+  nom        String    @unique
+  contact    String?
+  tarifParKg Decimal?  @db.Decimal(14, 4)
+  tarifParM3 Decimal?  @db.Decimal(14, 4)
+  devise     Devise    @default(MGA)
+  notes      String?
+  commandes  Commande[]
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+}
+
+model Commande {
+  id                        String         @id @default(cuid())
+  applicationId             String
+  application               Application    @relation(fields: [applicationId], references: [id], onDelete: Restrict)
+  transitaireId             String?
+  transitaire               Transitaire?   @relation(fields: [transitaireId], references: [id], onDelete: SetNull)
+  dateCommande              DateTime       @default(now())
+  // Nullable : le numéro de suivi n'est pas toujours connu au moment de la commande
+  codeSuivi                 String?        @unique
+  statut                    StatutCommande @default(COMMANDEE)
+  montantArticlesCny        Decimal        @default(0) @db.Decimal(12, 2)
+  fraisAppCny               Decimal        @default(0) @db.Decimal(12, 2)
+  fraisLivraisonCny         Decimal        @default(0) @db.Decimal(12, 2)
+  // Taux figé au moment de la commande
+  tauxCnyMga                Decimal        @db.Decimal(14, 6)
+  poidsKg                   Decimal?       @db.Decimal(10, 3)
+  volumeM3                  Decimal?       @db.Decimal(10, 4)
+  fraisTransitaireEstime    Decimal?       @db.Decimal(14, 2)
+  fraisTransitaireReel      Decimal?       @db.Decimal(14, 2)
+  deviseTransitaire         Devise         @default(MGA)
+  tauxDeviseTransitaireMga  Decimal?       @db.Decimal(14, 6)
+  dateRecuperation          DateTime?
+  notes                     String?
+  articles                  Article[]
+  historique                HistoriqueStatut[]
+  createdAt                 DateTime       @default(now())
+  updatedAt                 DateTime       @updatedAt
+
+  @@index([statut])
+  @@index([dateCommande])
+  @@index([applicationId])
+  @@index([transitaireId])
+}
+
+model Article {
+  id              String   @id @default(cuid())
+  commandeId      String
+  commande        Commande @relation(fields: [commandeId], references: [id], onDelete: Cascade)
+  nom             String
+  lienProduit     String?
+  quantite        Int      @default(1)
+  prixUnitaireCny Decimal  @db.Decimal(12, 2)
+  image           String?
+
+  @@index([commandeId])
+  @@index([nom])
+}
+
+model HistoriqueStatut {
+  id         String         @id @default(cuid())
+  commandeId String
+  commande   Commande       @relation(fields: [commandeId], references: [id], onDelete: Cascade)
+  statut     StatutCommande
+  date       DateTime       @default(now())
+  note       String?
+
+  @@index([commandeId, date])
+}
+
+// Cache des taux de change récupérés depuis l'API (1 fois par jour max)
+model TauxChange {
+  id          String   @id @default(cuid())
+  devise      Devise
+  tauxVersMga Decimal  @db.Decimal(14, 6)
+  date        DateTime @default(now())
+
+  @@index([devise, date])
+}
