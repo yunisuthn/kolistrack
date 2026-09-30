@@ -27,7 +27,10 @@ function cleMois(date: Date) {
 export default async function TableauDeBord() {
   const [commandes, taux] = await Promise.all([
     prisma.commande.findMany({
-      include: { application: { select: { nom: true } } },
+      include: {
+        application: { select: { nom: true } },
+        articles: { select: { codeSuivi: true }, where: { codeSuivi: { not: null } }, take: 1, orderBy: { id: "asc" } },
+      },
       orderBy: { dateCommande: "asc" },
     }),
     getTauxActuels(),
@@ -45,7 +48,7 @@ export default async function TableauDeBord() {
   for (const c of commandes) {
     parStatut[c.statut]++;
     if (c.statut === "ANNULEE") continue;
-    const calcul = calculerCommande(c, taux ?? undefined);
+    const calcul = calculerCommande({ ...c, articles: undefined }, taux ?? undefined);
 
     const cle = cleMois(c.dateCommande);
     parMois.set(cle, (parMois.get(cle) ?? new Decimal(0)).add(calcul.coutTotalMga));
@@ -55,7 +58,7 @@ export default async function TableauDeBord() {
       if (calcul.statutTotal !== "DEFINITIF") enAttenteEstime = true;
       const jours = joursDepuis(c.dateCommande);
       if (jours > SEUIL_RETARD_JOURS) {
-        enRetard.push({ id: c.id, app: c.application.nom, code: c.codeSuivi, date: c.dateCommande, statut: c.statut, jours });
+        enRetard.push({ id: c.id, app: c.application.nom, code: c.articles[0]?.codeSuivi ?? c.codeSuivi, date: c.dateCommande, statut: c.statut, jours });
       }
     }
   }

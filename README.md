@@ -12,7 +12,7 @@ yuan (CNY) et toujours convertis en ariary (MGA).
 | Page | Contenu |
 | --- | --- |
 | Tableau de bord `/` | Commandes par statut, montant en attente (MGA), total dépensé par mois (12 mois), commandes en attente depuis plus de 30 jours |
-| Commandes `/commandes` | Recherche (code de suivi, nom d'article, notes), filtres (statut, application, transitaire, dates), tri, cartes sur mobile / tableau sur ordinateur |
+| Commandes `/commandes` | Recherche (code de suivi des articles, nom d'article, notes), filtres (statut, application, transitaire, dates), tri, cartes sur mobile / tableau sur ordinateur |
 | Nouvelle / modifier | Ajout dynamique d'articles, frais d'application calculés automatiquement (modifiables), taux du jour pré-rempli (modifiable), estimation des frais transitaire depuis son tarif, totaux CNY et MGA en direct |
 | Détail `/commandes/[id]` | Coûts, coût de revient par article, historique des statuts, « Changer le statut », « Marquer comme récupérée » (frais réels, poids, date) |
 | Recherche colis `/recherche` | Un champ unique : ouvre directement la commande si le code correspond exactement |

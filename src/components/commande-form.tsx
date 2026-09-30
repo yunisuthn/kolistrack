@@ -34,6 +34,8 @@ const nouvelArticle = (): ArticleForm => ({
   quantite: "1",
   prixUnitaireCny: "",
   image: "",
+  codeSuivi: "",
+  statut: "COMMANDEE",
 });
 
 type Props = {
@@ -54,8 +56,6 @@ export function CommandeForm({ options, tauxActuels, initial, aujourdhui }: Prop
         applicationId: options.applications[0]?.id ?? "",
         transitaireId: "",
         dateCommande: aujourdhui,
-        codeSuivi: "",
-        statut: "COMMANDEE",
         montantArticlesCny: "",
         fraisAppCny: "0",
         fraisLivraisonCny: "0",
@@ -110,7 +110,7 @@ export function CommandeForm({ options, tauxActuels, initial, aujourdhui }: Prop
     setV((prev) => ({ ...prev, [champ]: valeur }));
   }
 
-  function majArticle(index: number, champ: keyof ArticleForm, valeur: string) {
+  function majArticle<K extends keyof ArticleForm>(index: number, champ: K, valeur: ArticleForm[K]) {
     setV((prev) => ({
       ...prev,
       articles: prev.articles.map((a, i) => (i === index ? { ...a, [champ]: valeur } : a)),
@@ -145,6 +145,8 @@ export function CommandeForm({ options, tauxActuels, initial, aujourdhui }: Prop
       quantite: a.quantite,
       prixUnitaireCny: a.prixUnitaireCny,
       image: a.image,
+      codeSuivi: a.codeSuivi,
+      statut: a.statut,
     }));
     startTransition(async () => {
       const res = await enregistrerCommande(initial?.id ?? null, {
@@ -152,7 +154,6 @@ export function CommandeForm({ options, tauxActuels, initial, aujourdhui }: Prop
         montantArticlesCny: montantArticles || "0",
         fraisAppCny: fraisApp || "0",
         fraisLivraisonCny: v.fraisLivraisonCny || "0",
-        statut: initial ? undefined : v.statut,
         articles,
       });
       if (res.ok && res.data) {
@@ -207,35 +208,6 @@ export function CommandeForm({ options, tauxActuels, initial, aujourdhui }: Prop
                 onChange={(e) => maj("dateCommande", e.target.value)}
               />
             </Champ>
-            <Champ
-              label="Code de suivi / identifiant colis"
-              htmlFor="codeSuivi"
-              erreur={erreurs.codeSuivi}
-              aide="Peut être ajouté plus tard"
-            >
-              <Input
-                id="codeSuivi"
-                value={v.codeSuivi}
-                autoCapitalize="characters"
-                onChange={(e) => maj("codeSuivi", e.target.value)}
-              />
-            </Champ>
-            {!initial && (
-              <Champ label="Statut initial" erreur={erreurs.statut}>
-                <Select value={v.statut} onValueChange={(x) => maj("statut", x as CommandeFormValues["statut"])}>
-                  <SelectTrigger className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {TOUS_STATUTS.map((s) => (
-                      <SelectItem key={s} value={s}>
-                        {STATUT_LABELS[s]}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </Champ>
-            )}
           </CardContent>
         </Card>
 
@@ -310,6 +282,32 @@ export function CommandeForm({ options, tauxActuels, initial, aujourdhui }: Prop
                       value={a.image}
                       onChange={(e) => majArticle(i, "image", e.target.value)}
                     />
+                  </Champ>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <Champ label="Code de suivi" htmlFor={`a-code-${i}`} erreur={erreurArticle(i, "codeSuivi")}>
+                    <Input
+                      id={`a-code-${i}`}
+                      placeholder="Peut être ajouté plus tard"
+                      autoCapitalize="characters"
+                      className="font-mono"
+                      value={a.codeSuivi}
+                      onChange={(e) => majArticle(i, "codeSuivi", e.target.value)}
+                    />
+                  </Champ>
+                  <Champ label="Statut" erreur={erreurArticle(i, "statut")}>
+                    <Select value={a.statut} onValueChange={(x) => majArticle(i, "statut", x as ArticleForm["statut"])}>
+                      <SelectTrigger className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {TOUS_STATUTS.map((s) => (
+                          <SelectItem key={s} value={s}>
+                            {STATUT_LABELS[s]}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </Champ>
                 </div>
               </div>

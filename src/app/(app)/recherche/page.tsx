@@ -20,7 +20,12 @@ export default async function RecherchePage({ searchParams }: PageProps<"/recher
   if (code) {
     // Correspondance exacte (insensible à la casse) : on ouvre directement la commande
     const exacte = await prisma.commande.findFirst({
-      where: { codeSuivi: { equals: code, mode: "insensitive" } },
+      where: {
+        OR: [
+          { codeSuivi: { equals: code, mode: "insensitive" } },
+          { articles: { some: { codeSuivi: { equals: code, mode: "insensitive" } } } },
+        ],
+      },
       select: { id: true },
     });
     if (exacte) redirect(`/commandes/${exacte.id}`);
@@ -63,7 +68,7 @@ export default async function RecherchePage({ searchParams }: PageProps<"/recher
                   Aucune commande avec le code <span className="font-mono font-medium">{code}</span>.
                 </p>
                 <p className="text-sm text-muted-foreground">
-                  Le code n&apos;a peut-être pas encore été saisi sur la commande.
+                  Le code n&apos;a peut-être pas encore été saisi sur l&apos;article.
                 </p>
                 <Button variant="outline" asChild>
                   <Link href="/commandes?statut=EN_COURS">Voir les commandes en cours</Link>
@@ -75,22 +80,29 @@ export default async function RecherchePage({ searchParams }: PageProps<"/recher
               <p className="text-sm text-muted-foreground">
                 Pas de correspondance exacte — {resultats.length} code(s) proche(s) :
               </p>
-              {resultats.map((c) => (
-                <Link key={c.id} href={`/commandes/${c.id}`} className="block">
-                  <Card className="py-4 transition-colors hover:bg-muted/50">
-                    <CardContent className="flex items-center justify-between gap-3 px-4">
-                      <div className="min-w-0">
-                        <p className="font-mono font-medium">{c.codeSuivi}</p>
-                        <p className="truncate text-sm text-muted-foreground">
-                          {c.application.nom} · {formatDate(c.dateCommande)}
-                          {c.articles[0] && ` · ${c.articles[0].nom}`}
-                        </p>
-                      </div>
-                      <StatutBadge statut={c.statut} />
-                    </CardContent>
-                  </Card>
-                </Link>
-              ))}
+              {resultats.map((c) => {
+                // Le code proche peut être celui de la commande ou celui d'un de ses articles
+                const article = c.codeSuivi?.includes(code)
+                  ? c.articles[0]
+                  : c.articles.find((a) => a.codeSuivi?.includes(code)) ?? c.articles[0];
+                const codeAffiche = c.codeSuivi?.includes(code) ? c.codeSuivi : article?.codeSuivi ?? c.codeSuivi;
+                return (
+                  <Link key={c.id} href={`/commandes/${c.id}`} className="block">
+                    <Card className="py-4 transition-colors hover:bg-muted/50">
+                      <CardContent className="flex items-center justify-between gap-3 px-4">
+                        <div className="min-w-0">
+                          <p className="font-mono font-medium">{codeAffiche}</p>
+                          <p className="truncate text-sm text-muted-foreground">
+                            {c.application.nom} · {formatDate(c.dateCommande)}
+                            {article && ` · ${article.nom}`}
+                          </p>
+                        </div>
+                        <StatutBadge statut={c.statut} />
+                      </CardContent>
+                    </Card>
+                  </Link>
+                );
+              })}
             </>
           )}
         </div>
@@ -101,10 +113,15 @@ export default async function RecherchePage({ searchParams }: PageProps<"/recher
 
 function rechercher(code: string) {
   return prisma.commande.findMany({
-    where: { codeSuivi: { contains: code, mode: "insensitive" } },
+    where: {
+      OR: [
+        { codeSuivi: { contains: code, mode: "insensitive" } },
+        { articles: { some: { codeSuivi: { contains: code, mode: "insensitive" } } } },
+      ],
+    },
     include: {
       application: { select: { nom: true } },
-      articles: { select: { nom: true }, take: 1, orderBy: { id: "asc" } },
+      articles: { select: { nom: true, codeSuivi: true }, orderBy: { id: "asc" } },
     },
     orderBy: { dateCommande: "desc" },
     take: 20,

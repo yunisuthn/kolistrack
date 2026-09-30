@@ -51,6 +51,7 @@ export default async function CommandesPage({ searchParams }: PageProps<"/comman
     where.OR = [
       { codeSuivi: { contains: q, mode: "insensitive" } },
       { articles: { some: { nom: { contains: q, mode: "insensitive" } } } },
+      { articles: { some: { codeSuivi: { contains: q, mode: "insensitive" } } } },
       { notes: { contains: q, mode: "insensitive" } },
     ];
   }
@@ -61,7 +62,7 @@ export default async function CommandesPage({ searchParams }: PageProps<"/comman
       include: {
         application: { select: { nom: true } },
         transitaire: { select: { nom: true } },
-        articles: { select: { nom: true, quantite: true }, orderBy: { id: "asc" } },
+        articles: { select: { nom: true, quantite: true, codeSuivi: true }, orderBy: { id: "asc" } },
       },
       orderBy: { dateCommande: "desc" },
     }),
@@ -99,6 +100,12 @@ export default async function CommandesPage({ searchParams }: PageProps<"/comman
           .slice(0, 2)
           .map((a) => (a.quantite > 1 ? `${a.nom} ×${a.quantite}` : a.nom))
           .join(", ") + (articles.length > 2 ? ` +${articles.length - 2}` : "");
+
+  // Codes de suivi des articles (sans doublon : plusieurs articles peuvent partager un colis)
+  const codesSuivi = (c: { codeSuivi: string | null; articles: { codeSuivi: string | null }[] }) => {
+    const codes = [...new Set([c.codeSuivi, ...c.articles.map((a) => a.codeSuivi)].filter((x) => x !== null))];
+    return codes.length === 0 ? null : codes.slice(0, 2).join(", ") + (codes.length > 2 ? ` +${codes.length - 2}` : "");
+  };
 
   return (
     <div className="space-y-4">
@@ -138,7 +145,7 @@ export default async function CommandesPage({ searchParams }: PageProps<"/comman
                     <p className="truncate text-sm text-muted-foreground">{resumeArticles(c.articles)}</p>
                     <div className="flex items-end justify-between gap-2">
                       <div className="text-xs text-muted-foreground">
-                        <p className="font-mono">{c.codeSuivi ?? "sans code"}</p>
+                        <p className="font-mono">{codesSuivi(c) ?? "sans code"}</p>
                         <p>{formatDate(c.dateCommande)}</p>
                       </div>
                       <div className="text-right">
@@ -175,7 +182,7 @@ export default async function CommandesPage({ searchParams }: PageProps<"/comman
                       </Link>
                     </TableCell>
                     <TableCell>{c.application.nom}</TableCell>
-                    <TableCell className="font-mono text-xs">{c.codeSuivi ?? "—"}</TableCell>
+                    <TableCell className="font-mono text-xs">{codesSuivi(c) ?? "—"}</TableCell>
                     <TableCell className="max-w-56 truncate">{resumeArticles(c.articles)}</TableCell>
                     <TableCell>
                       <StatutBadge statut={c.statut} />
