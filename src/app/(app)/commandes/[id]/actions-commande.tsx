@@ -141,7 +141,10 @@ export function ActionsCommande({ commandeId, statut, statutSuivant, aujourdhui,
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Changer le statut</DialogTitle>
-            <DialogDescription>Le changement est ajouté à l&apos;historique.</DialogDescription>
+            <DialogDescription>
+              S&apos;applique aux articles pas encore à ce stade ; le statut d&apos;un seul article se change
+              directement dans la liste des articles. Le changement est ajouté à l&apos;historique.
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <Champ label="Nouveau statut" erreur={erreurs.statut}>

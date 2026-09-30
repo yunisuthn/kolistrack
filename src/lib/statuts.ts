@@ -34,6 +34,23 @@ export const STATUT_COULEURS: Record<StatutCommande, string> = {
   ANNULEE: "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-200",
 };
 
+/**
+ * Statut d'une commande d'après ses articles : celui de l'article le moins avancé
+ * (hors annulés). `null` si la commande n'a pas d'articles détaillés.
+ */
+export function statutDepuisArticles(statuts: StatutCommande[]): StatutCommande | null {
+  if (statuts.length === 0) return null;
+  const actifs = statuts.filter((s) => s !== "ANNULEE");
+  if (actifs.length === 0) return "ANNULEE";
+  return STATUTS_ORDONNES.find((s) => actifs.includes(s)) ?? null;
+}
+
+/** Statuts qui précèdent `statut` dans le parcours d'un colis. */
+export function statutsAnterieurs(statut: StatutCommande): StatutCommande[] {
+  const index = STATUTS_ORDONNES.indexOf(statut as (typeof STATUTS_ORDONNES)[number]);
+  return index === -1 ? [] : STATUTS_ORDONNES.slice(0, index);
+}
+
 export function statutSuivant(statut: StatutCommande): StatutCommande | null {
   const index = STATUTS_ORDONNES.indexOf(statut as (typeof STATUTS_ORDONNES)[number]);
   if (index === -1 || index === STATUTS_ORDONNES.length - 1) return null;

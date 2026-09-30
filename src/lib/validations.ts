@@ -34,6 +34,11 @@ export function normaliserCodeSuivi(code: string): string {
   return code.replace(/\s+/g, "").toUpperCase();
 }
 
+const codeSuiviOptionnel = z.preprocess(
+  (v) => (typeof v === "string" ? normaliserCodeSuivi(v) || null : v),
+  z.string().max(100, "100 caractères maximum").nullable().optional(),
+);
+
 const dateJour = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Date invalide");
 
 export const montant = nombreDecimal(2, "Montant invalide (2 décimales max)");
@@ -51,17 +56,14 @@ export const articleSchema = z.object({
   quantite: z.coerce.number().int("Quantité entière").min(1, "Quantité ≥ 1").max(100000),
   prixUnitaireCny: montant,
   image: urlOptionnelle,
+  codeSuivi: codeSuiviOptionnel,
+  statut: statutSchema.optional(),
 });
 
 export const commandeSchema = z.object({
   applicationId: z.string().min(1, "Choisissez une application"),
   transitaireId: z.preprocess((v) => (v === "" || v === "aucun" ? null : v), z.string().nullable()),
   dateCommande: dateJour,
-  codeSuivi: z.preprocess(
-    (v) => (typeof v === "string" ? normaliserCodeSuivi(v) || null : v),
-    z.string().max(100, "100 caractères maximum").nullable().optional(),
-  ),
-  statut: statutSchema.optional(),
   montantArticlesCny: montant,
   fraisAppCny: montant,
   fraisLivraisonCny: montant,
@@ -83,6 +85,11 @@ export const changementStatutSchema = z.object({
   statut: statutSchema,
   date: dateJour,
   note: texteOptionnel(1000),
+});
+
+export const changementStatutArticleSchema = z.object({
+  articleId: z.string().min(1),
+  statut: statutSchema,
 });
 
 export const recuperationSchema = z.object({

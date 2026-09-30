@@ -21,11 +21,12 @@ import {
 import { STATUT_LABELS, statutSuivant } from "@/lib/statuts";
 import { getTauxActuels } from "@/lib/taux";
 import { ActionsCommande } from "./actions-commande";
+import { StatutArticle } from "./statut-article";
 
 export async function generateMetadata({ params }: PageProps<"/commandes/[id]">): Promise<Metadata> {
   const { id } = await params;
   const c = await getCommande(id);
-  return { title: c ? `Commande ${c.codeSuivi ?? c.application.nom}` : "Commande" };
+  return { title: c ? `Commande ${c.application.nom}` : "Commande" };
 }
 
 export default async function CommandePage({ params }: PageProps<"/commandes/[id]">) {
@@ -46,7 +47,7 @@ export default async function CommandePage({ params }: PageProps<"/commandes/[id
             <h1 className="text-xl font-semibold">{c.application.nom}</h1>
             <StatutBadge statut={c.statut} />
           </div>
-          <p className="font-mono text-sm">{c.codeSuivi ?? <span className="text-muted-foreground">Sans code de suivi</span>}</p>
+          {c.codeSuivi && <p className="font-mono text-sm">{c.codeSuivi}</p>}
           <p className="text-sm text-muted-foreground">
             Commandée le {formatDate(c.dateCommande)}
             {enCours && ` · il y a ${joursDepuis(c.dateCommande)} j`}
@@ -169,6 +170,12 @@ export default async function CommandePage({ params }: PageProps<"/commandes/[id
                         </p>
                         <span className="shrink-0 text-sm tabular-nums">{formatCNY(cout.totalLigneCny)}</span>
                       </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <StatutArticle articleId={a.id} statut={a.statut} />
+                        <span className="font-mono text-xs">
+                          {a.codeSuivi ?? <span className="text-muted-foreground">Sans code de suivi</span>}
+                        </span>
+                      </div>
                       <p className="text-sm text-muted-foreground">
                         {a.quantite} × {formatCNY(a.prixUnitaireCny)} = {formatMGA(cout.totalLigneMga)}
                       </p>
@@ -186,7 +193,7 @@ export default async function CommandePage({ params }: PageProps<"/commandes/[id
               })}
               {c.articles.length > 0 && (
                 <p className="pt-3 text-xs text-muted-foreground">
-                  Frais (application, livraison, transitaire) répartis au prorata de la valeur de chaque article.
+                  Le statut de la commande suit l&apos;article le moins avancé. Frais (application, livraison, transitaire) répartis au prorata de la valeur de chaque article.
                 </p>
               )}
             </CardContent>

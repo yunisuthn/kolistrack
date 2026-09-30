@@ -62,8 +62,9 @@ model Commande {
   transitaireId             String?
   transitaire               Transitaire?   @relation(fields: [transitaireId], references: [id], onDelete: SetNull)
   dateCommande              DateTime       @default(now())
-  // Nullable : le numéro de suivi n'est pas toujours connu au moment de la commande
+  // Hérité : le suivi se fait désormais par article (Article.codeSuivi), ce champ n'est plus saisi
   codeSuivi                 String?        @unique
+  // Déduit des articles (le moins avancé, hors annulés) dès qu'il y en a
   statut                    StatutCommande @default(COMMANDEE)
   montantArticlesCny        Decimal        @default(0) @db.Decimal(12, 2)
   fraisAppCny               Decimal        @default(0) @db.Decimal(12, 2)
@@ -98,9 +99,14 @@ model Article {
   quantite        Int      @default(1)
   prixUnitaireCny Decimal  @db.Decimal(12, 2)
   image           String?
+  // Une commande peut être expédiée en plusieurs colis : suivi propre à chaque article.
+  // Non unique : plusieurs articles peuvent voyager dans le même colis.
+  codeSuivi       String?
+  statut          StatutCommande @default(COMMANDEE)
 
   @@index([commandeId])
   @@index([nom])
+  @@index([codeSuivi])
 }
 
 model HistoriqueStatut {

@@ -23,8 +23,6 @@ export type CommandeFormValues = {
   applicationId: string;
   transitaireId: string;
   dateCommande: string;
-  codeSuivi: string;
-  statut: StatutCommande;
   montantArticlesCny: string;
   fraisAppCny: string;
   fraisLivraisonCny: string;
@@ -44,6 +42,8 @@ export type CommandeFormValues = {
     quantite: string;
     prixUnitaireCny: string;
     image: string;
+    codeSuivi: string;
+    statut: StatutCommande;
   }[];
 };
 
@@ -55,8 +55,6 @@ export function versFormValues(c: CommandeComplete): CommandeFormValues {
     applicationId: c.applicationId,
     transitaireId: c.transitaireId ?? "",
     dateCommande: toInputDate(c.dateCommande),
-    codeSuivi: c.codeSuivi ?? "",
-    statut: c.statut,
     montantArticlesCny: s(c.montantArticlesCny),
     fraisAppCny: s(c.fraisAppCny),
     fraisLivraisonCny: s(c.fraisLivraisonCny),
@@ -76,6 +74,8 @@ export function versFormValues(c: CommandeComplete): CommandeFormValues {
       quantite: String(a.quantite),
       prixUnitaireCny: s(a.prixUnitaireCny),
       image: a.image ?? "",
+      codeSuivi: a.codeSuivi ?? "",
+      statut: a.statut,
     })),
   };
 }
