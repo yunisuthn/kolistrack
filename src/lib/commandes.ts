@@ -1,13 +1,13 @@
 import "server-only";
 import type { Prisma } from "@/generated/prisma/client";
-import type { Devise, StatutCommande } from "@/generated/prisma/enums";
+import type { DestinationArticle, Devise, StatutCommande } from "@/generated/prisma/enums";
 import { prisma } from "./prisma";
 import { toInputDate } from "./format";
 
 export const commandeAvecRelations = {
   application: true,
   transitaire: true,
-  articles: { orderBy: { id: "asc" } },
+  articles: { orderBy: { id: "asc" }, include: { client: true } },
   historique: { orderBy: [{ date: "desc" }, { id: "desc" }] },
 } satisfies Prisma.CommandeInclude;
 
@@ -38,12 +38,13 @@ export type CommandeFormValues = {
   articles: {
     cle: string;
     nom: string;
-    lienProduit: string;
     quantite: string;
     prixUnitaireCny: string;
-    image: string;
     codeSuivi: string;
     statut: StatutCommande;
+    destination: DestinationArticle;
+    clientId: string;
+    tauxVenteCnyMga: string;
   }[];
 };
 
@@ -70,18 +71,19 @@ export function versFormValues(c: CommandeComplete): CommandeFormValues {
     articles: c.articles.map((a) => ({
       cle: a.id,
       nom: a.nom,
-      lienProduit: a.lienProduit ?? "",
       quantite: String(a.quantite),
       prixUnitaireCny: s(a.prixUnitaireCny),
-      image: a.image ?? "",
       codeSuivi: a.codeSuivi ?? "",
       statut: a.statut,
+      destination: a.destination,
+      clientId: a.clientId ?? "",
+      tauxVenteCnyMga: s(a.tauxVenteCnyMga),
     })),
   };
 }
 
 export async function getOptionsFormulaire(applicationIdCourant?: string) {
-  const [applications, transitaires] = await Promise.all([
+  const [applications, transitaires, clients, parametres] = await Promise.all([
     prisma.application.findMany({
       where: applicationIdCourant
         ? { OR: [{ actif: true }, { id: applicationIdCourant }] }
@@ -89,6 +91,8 @@ export async function getOptionsFormulaire(applicationIdCourant?: string) {
       orderBy: { nom: "asc" },
     }),
     prisma.transitaire.findMany({ orderBy: { nom: "asc" } }),
+    prisma.client.findMany({ orderBy: { nom: "asc" }, select: { id: true, nom: true } }),
+    getParametres(),
   ]);
   return {
     applications: applications.map((a) => ({
@@ -104,7 +108,14 @@ export async function getOptionsFormulaire(applicationIdCourant?: string) {
       tarifParKg: s(t.tarifParKg),
       tarifParM3: s(t.tarifParM3),
     })),
+    clients,
+    tauxVenteDefaut: parametres.tauxVenteCnyMga.toString(),
   };
+}
+
+/** Réglages globaux (ligne unique, créée au besoin). */
+export function getParametres() {
+  return prisma.parametres.upsert({ where: { id: 1 }, create: { id: 1 }, update: {} });
 }
 
 export type OptionsFormulaire = Awaited<ReturnType<typeof getOptionsFormulaire>>;

@@ -2,10 +2,11 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Calculator, Plus, RotateCcw, Trash2 } from "lucide-react";
+import { Calculator, Plus, RotateCcw, Trash2, UserPlus } from "lucide-react";
 import { toast } from "sonner";
 import { enregistrerCommande } from "@/app/(app)/commandes/actions";
 import { Champ } from "@/components/champ";
+import { CLIENT_VIDE, ClientDialog } from "@/components/client-dialog";
 import { StatutTotalBadge } from "@/components/statut-badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -18,24 +19,30 @@ import {
   calculerFraisApp,
   estimerFraisTransitaire,
   montantArticlesCny,
+  type CoutArticle,
+  type DestinationCode,
   type DeviseCode,
 } from "@/lib/calculs";
 import type { CommandeFormValues, OptionsFormulaire } from "@/lib/commandes";
 import { formatCNY, formatDevise, formatMGA, formatTaux } from "@/lib/format";
+import { DESTINATION_LABELS, TOUTES_DESTINATIONS } from "@/lib/destinations";
 import { STATUT_LABELS, TOUS_STATUTS } from "@/lib/statuts";
 
 type ArticleForm = CommandeFormValues["articles"][number];
 
 let compteurCle = 0;
-const nouvelArticle = (): ArticleForm => ({
+const NOUVEAU_CLIENT = "__nouveau";
+
+const nouvelArticle = (tauxVente: string): ArticleForm => ({
   cle: `nouveau-${++compteurCle}`,
   nom: "",
-  lienProduit: "",
   quantite: "1",
   prixUnitaireCny: "",
-  image: "",
   codeSuivi: "",
   statut: "COMMANDEE",
+  destination: "STOCK",
+  clientId: "",
+  tauxVenteCnyMga: tauxVente,
 });
 
 type Props = {
@@ -68,9 +75,13 @@ export function CommandeForm({ options, tauxActuels, initial, aujourdhui }: Prop
         tauxDeviseTransitaireMga: "",
         dateRecuperation: "",
         notes: "",
-        articles: [nouvelArticle()],
+        articles: [nouvelArticle(options.tauxVenteDefaut)],
       },
   );
+
+  const [clients, setClients] = useState(options.clients);
+  // Index de l'article pour lequel on crée un client (fenêtre ouverte)
+  const [clientPourArticle, setClientPourArticle] = useState<number | null>(null);
 
   const application = options.applications.find((a) => a.id === v.applicationId);
   const transitaire = options.transitaires.find((t) => t.id === v.transitaireId);
@@ -98,9 +109,14 @@ export function CommandeForm({ options, tauxActuels, initial, aujourdhui }: Prop
       fraisTransitaireReel: v.fraisTransitaireReel,
       deviseTransitaire: v.deviseTransitaire,
       tauxDeviseTransitaireMga: v.tauxDeviseTransitaireMga,
+      articles: articlesRemplis.map((a) => ({
+        ...a,
+        tauxVenteCnyMga: a.tauxVenteCnyMga || options.tauxVenteDefaut,
+      })),
     },
     tauxActuels ?? undefined,
   );
+  const coutArticle = (a: ArticleForm) => calcul.coutsArticles[articlesRemplis.indexOf(a)];
 
   const estimationTarif = transitaire
     ? estimerFraisTransitaire(transitaire, v.poidsKg, v.volumeM3)
@@ -114,6 +130,22 @@ export function CommandeForm({ options, tauxActuels, initial, aujourdhui }: Prop
     setV((prev) => ({
       ...prev,
       articles: prev.articles.map((a, i) => (i === index ? { ...a, [champ]: valeur } : a)),
+    }));
+  }
+
+  function choisirDestination(index: number, destination: DestinationCode) {
+    setV((prev) => ({
+      ...prev,
+      articles: prev.articles.map((a, i) =>
+        i === index
+          ? {
+              ...a,
+              destination,
+              tauxVenteCnyMga:
+                destination !== "PERSONNEL" && !a.tauxVenteCnyMga ? options.tauxVenteDefaut : a.tauxVenteCnyMga,
+            }
+          : a,
+      ),
     }));
   }
 
@@ -141,12 +173,13 @@ export function CommandeForm({ options, tauxActuels, initial, aujourdhui }: Prop
     e.preventDefault();
     const articles = articlesRemplis.map((a) => ({
       nom: a.nom,
-      lienProduit: a.lienProduit,
       quantite: a.quantite,
       prixUnitaireCny: a.prixUnitaireCny,
-      image: a.image,
       codeSuivi: a.codeSuivi,
       statut: a.statut,
+      destination: a.destination,
+      clientId: a.clientId,
+      tauxVenteCnyMga: a.tauxVenteCnyMga,
     }));
     startTransition(async () => {
       const res = await enregistrerCommande(initial?.id ?? null, {
@@ -265,26 +298,6 @@ export function CommandeForm({ options, tauxActuels, initial, aujourdhui }: Prop
                   </div>
                 </div>
                 <div className="grid gap-3 sm:grid-cols-2">
-                  <Champ label="Lien produit" htmlFor={`a-lien-${i}`} erreur={erreurArticle(i, "lienProduit")}>
-                    <Input
-                      id={`a-lien-${i}`}
-                      type="url"
-                      placeholder="https://…"
-                      value={a.lienProduit}
-                      onChange={(e) => majArticle(i, "lienProduit", e.target.value)}
-                    />
-                  </Champ>
-                  <Champ label="Image (URL)" htmlFor={`a-img-${i}`} erreur={erreurArticle(i, "image")}>
-                    <Input
-                      id={`a-img-${i}`}
-                      type="url"
-                      placeholder="https://…"
-                      value={a.image}
-                      onChange={(e) => majArticle(i, "image", e.target.value)}
-                    />
-                  </Champ>
-                </div>
-                <div className="grid gap-3 sm:grid-cols-2">
                   <Champ label="Code de suivi" htmlFor={`a-code-${i}`} erreur={erreurArticle(i, "codeSuivi")}>
                     <Input
                       id={`a-code-${i}`}
@@ -310,9 +323,69 @@ export function CommandeForm({ options, tauxActuels, initial, aujourdhui }: Prop
                     </Select>
                   </Champ>
                 </div>
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <Champ label="Destination" erreur={erreurArticle(i, "destination")}>
+                    <Select value={a.destination} onValueChange={(x) => choisirDestination(i, x as DestinationCode)}>
+                      <SelectTrigger className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {TOUTES_DESTINATIONS.map((d) => (
+                          <SelectItem key={d} value={d}>
+                            {DESTINATION_LABELS[d]}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </Champ>
+                  {a.destination === "CLIENT" && (
+                    <Champ label="Client" erreur={erreurArticle(i, "clientId")}>
+                      <Select
+                        value={a.clientId || undefined}
+                        onValueChange={(x) =>
+                          x === NOUVEAU_CLIENT ? setClientPourArticle(i) : majArticle(i, "clientId", x)
+                        }
+                      >
+                        <SelectTrigger className="w-full">
+                          <SelectValue placeholder="Choisir…" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {clients.map((c) => (
+                            <SelectItem key={c.id} value={c.id}>
+                              {c.nom}
+                            </SelectItem>
+                          ))}
+                          <SelectItem value={NOUVEAU_CLIENT}>
+                            <UserPlus /> Nouveau client…
+                          </SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </Champ>
+                  )}
+                  {a.destination !== "PERSONNEL" && (
+                    <Champ
+                      label="Taux de vente (Ar/¥)"
+                      htmlFor={`a-tv-${i}`}
+                      erreur={erreurArticle(i, "tauxVenteCnyMga")}
+                      aide={
+                        a.tauxVenteCnyMga !== options.tauxVenteDefaut
+                          ? `Par défaut : ${formatTaux(options.tauxVenteDefaut)}`
+                          : undefined
+                      }
+                    >
+                      <Input
+                        id={`a-tv-${i}`}
+                        inputMode="decimal"
+                        value={a.tauxVenteCnyMga}
+                        onChange={(e) => majArticle(i, "tauxVenteCnyMga", e.target.value)}
+                      />
+                    </Champ>
+                  )}
+                </div>
+                <PrixArticle cout={coutArticle(a)} destination={a.destination} />
               </div>
             ))}
-            <Button type="button" variant="outline" className="w-full" onClick={() => maj("articles", [...v.articles, nouvelArticle()])}>
+            <Button type="button" variant="outline" className="w-full" onClick={() => maj("articles", [...v.articles, nouvelArticle(options.tauxVenteDefaut)])}>
               <Plus /> Ajouter un article
             </Button>
           </CardContent>
@@ -559,6 +632,26 @@ export function CommandeForm({ options, tauxActuels, initial, aujourdhui }: Prop
             <span className="font-medium">Coût total</span>
             <span className="text-lg font-semibold tabular-nums">{formatMGA(calcul.coutTotalMga)}</span>
           </div>
+          {articlesRemplis.length > 0 && (
+            <>
+              <Separator />
+              {calcul.ventes.clientsMga.gt(0) && (
+                <Ligne label="À facturer aux clients" valeur={formatMGA(calcul.ventes.clientsMga)} />
+              )}
+              {calcul.ventes.stockMga.gt(0) && (
+                <Ligne label="Stock à vendre" valeur={formatMGA(calcul.ventes.stockMga)} />
+              )}
+              {calcul.ventes.personnelMga.gt(0) && (
+                <Ligne label="Pour moi (coût)" valeur={formatMGA(calcul.ventes.personnelMga)} />
+              )}
+              <div className="flex items-baseline justify-between gap-2">
+                <span className="font-medium">Gain prévu</span>
+                <span className="font-semibold text-green-700 tabular-nums dark:text-green-400">
+                  {formatMGA(calcul.ventes.margeMga)}
+                </span>
+              </div>
+            </>
+          )}
           <Button type="submit" className="mt-2 w-full" disabled={pending}>
             {pending ? "Enregistrement…" : initial ? "Enregistrer les modifications" : "Créer la commande"}
           </Button>
@@ -569,7 +662,36 @@ export function CommandeForm({ options, tauxActuels, initial, aujourdhui }: Prop
           )}
         </CardContent>
       </Card>
+      <ClientDialog
+        client={clientPourArticle !== null ? { ...CLIENT_VIDE } : null}
+        onClose={() => setClientPourArticle(null)}
+        onSaved={(c) => {
+          setClients((prev) => [...prev, c].sort((x, y) => x.nom.localeCompare(y.nom)));
+          if (clientPourArticle !== null) majArticle(clientPourArticle, "clientId", c.id);
+        }}
+      />
     </form>
+  );
+}
+
+/** Coût, prix client et gain d'un article, calculés en direct. */
+function PrixArticle({ cout, destination }: { cout?: CoutArticle; destination: DestinationCode }) {
+  if (!cout || cout.totalLigneCny.isZero()) return null;
+  return (
+    <p className="text-sm text-muted-foreground">
+      Coût {formatMGA(cout.coutRevientLigneMga)}
+      {cout.prixVenteLigneMga && destination !== "PERSONNEL" && (
+        <>
+          {" · "}
+          {destination === "CLIENT" ? "Prix client" : "Prix de vente"}{" "}
+          <span className="font-medium text-foreground tabular-nums">{formatMGA(cout.prixVenteLigneMga)}</span>
+          {" · "}gain{" "}
+          <span className="text-green-700 tabular-nums dark:text-green-400">
+            {formatMGA(cout.margeLigneMga)}
+          </span>
+        </>
+      )}
+    </p>
   );
 }
 

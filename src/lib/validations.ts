@@ -24,11 +24,6 @@ const texteOptionnel = (max: number) =>
     z.string().trim().max(max, `${max} caractères maximum`).nullable().optional(),
   );
 
-const urlOptionnelle = z.preprocess(
-  (v) => (typeof v === "string" && v.trim() === "" ? null : v),
-  z.url({ error: "URL invalide" }).max(2000).nullable().optional(),
-);
-
 /** Codes de suivi stockés en majuscules sans espaces : unicité et recherche insensibles à la casse. */
 export function normaliserCodeSuivi(code: string): string {
   return code.replace(/\s+/g, "").toUpperCase();
@@ -48,17 +43,25 @@ export const tauxOptionnel = nombreDecimalOptionnel(6, "Taux invalide");
 
 export const deviseSchema = z.enum(["MGA", "USD", "CNY"]);
 export const statutSchema = z.enum(TOUS_STATUTS);
+export const destinationSchema = z.enum(["CLIENT", "STOCK", "PERSONNEL"]);
 
-export const articleSchema = z.object({
+export const articleSchema = z
+  .object({
   id: z.string().optional(),
   nom: z.string().trim().min(1, "Nom de l'article requis").max(300),
-  lienProduit: urlOptionnelle,
   quantite: z.coerce.number().int("Quantité entière").min(1, "Quantité ≥ 1").max(100000),
   prixUnitaireCny: montant,
-  image: urlOptionnelle,
   codeSuivi: codeSuiviOptionnel,
   statut: statutSchema.optional(),
-});
+  destination: destinationSchema.default("STOCK"),
+  clientId: z.preprocess((v) => (v === "" ? null : v), z.string().nullable().optional()),
+  // Vide : le taux de vente par défaut des paramètres est appliqué à l'enregistrement
+  tauxVenteCnyMga: tauxOptionnel,
+  })
+  .refine((a) => a.destination !== "CLIENT" || !!a.clientId, {
+    message: "Choisissez le client",
+    path: ["clientId"],
+  });
 
 export const commandeSchema = z.object({
   applicationId: z.string().min(1, "Choisissez une application"),
@@ -123,6 +126,17 @@ export const transitaireSchema = z.object({
   tarifParM3: nombreDecimalOptionnel(4, "Tarif invalide"),
   devise: deviseSchema,
   notes: texteOptionnel(2000),
+});
+
+export const clientSchema = z.object({
+  id: z.string().optional(),
+  nom: z.string().trim().min(1, "Nom requis").max(100),
+  telephone: texteOptionnel(50),
+  notes: texteOptionnel(2000),
+});
+
+export const parametresSchema = z.object({
+  tauxVenteCnyMga: taux,
 });
 
 /**
