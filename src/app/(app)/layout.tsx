@@ -30,7 +30,7 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
               {taux ? (
                 <>
                   <div>
-                    1 ¥ = <span className="font-medium text-foreground">{formatTaux(taux.CNY)} Ar</span>
+                    1 元 = <span className="font-medium text-foreground">{formatTaux(taux.CNY)} Ar</span>
                     {taux.perime && " ⚠"}
                   </div>
                   <div className="hidden sm:block">1 $ = {formatTaux(taux.USD)} Ar</div>

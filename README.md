@@ -18,7 +18,7 @@ yuan (CNY) et toujours convertis en ariary (MGA).
 | Recherche colis `/recherche` | Un champ unique : ouvre directement la commande si le code correspond exactement |
 | Paramètres `/parametres` | Applications (frais en % ou fixe) et transitaires (tarifs au kg / m³, devise) |
 
-Le taux actuel (1 ¥ et 1 $ en Ar) est affiché dans l'en-tête, avec un convertisseur ¥ ⇄ Ar
+Le taux actuel (1 元 et 1 $ en Ar) est affiché dans l'en-tête, avec un convertisseur 元 ⇄ Ar
 accessible depuis toutes les pages.
 
 ### Règles de calcul

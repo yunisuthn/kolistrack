@@ -8,19 +8,24 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { enregistrerParametres } from "./actions";
 
-export function TauxVenteForm({ tauxVenteCnyMga }: { tauxVenteCnyMga: string }) {
-  const [taux, setTaux] = useState(tauxVenteCnyMga);
-  const [erreur, setErreur] = useState<string>();
+type Props = { tauxVenteCnyMga: string; gainMinimumMga: string };
+
+export function TauxVenteForm(initial: Props) {
+  const [v, setV] = useState(initial);
+  const [erreurs, setErreurs] = useState<Record<string, string>>({});
   const [pending, startTransition] = useTransition();
 
   function enregistrer(e: React.FormEvent) {
     e.preventDefault();
     startTransition(async () => {
-      const res = await enregistrerParametres({ tauxVenteCnyMga: taux });
+      const res = await enregistrerParametres(v);
       if (res.ok) {
-        setErreur(undefined);
-        toast.success("Taux de vente enregistré");
-      } else setErreur(res.erreurs?.tauxVenteCnyMga ?? res.erreur);
+        setErreurs({});
+        toast.success("Réglages de vente enregistrés");
+      } else {
+        setErreurs(res.erreurs ?? {});
+        if (res.erreur) toast.error(res.erreur);
+      }
     });
   }
 
@@ -29,23 +34,34 @@ export function TauxVenteForm({ tauxVenteCnyMga }: { tauxVenteCnyMga: string }) 
       <CardHeader>
         <CardTitle>Vente</CardTitle>
       </CardHeader>
-      <CardContent className="space-y-1.5">
-        <form onSubmit={enregistrer} className="flex items-end gap-2">
-          <Champ label="Taux de vente 1 ¥ → Ar" htmlFor="tauxVente" className="flex-1">
-            <Input id="tauxVente" inputMode="decimal" value={taux} onChange={(e) => setTaux(e.target.value)} />
-          </Champ>
+      <CardContent>
+        <form onSubmit={enregistrer} className="space-y-3">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Champ label="Taux de vente 1 元 → Ar" htmlFor="tauxVente" erreur={erreurs.tauxVenteCnyMga}>
+              <Input
+                id="tauxVente"
+                inputMode="decimal"
+                value={v.tauxVenteCnyMga}
+                onChange={(e) => setV({ ...v, tauxVenteCnyMga: e.target.value })}
+              />
+            </Champ>
+            <Champ label="Gain minimum par unité (Ar)" htmlFor="gainMinimum" erreur={erreurs.gainMinimumMga}>
+              <Input
+                id="gainMinimum"
+                inputMode="decimal"
+                value={v.gainMinimumMga}
+                onChange={(e) => setV({ ...v, gainMinimumMga: e.target.value })}
+              />
+            </Champ>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Prix client = prix en 元 × ce taux + sa part des frais au prix coûtant, relevé si besoin pour
+            rapporter au moins le gain minimum par unité. Les articles déjà enregistrés gardent leurs réglages.
+          </p>
           <Button type="submit" disabled={pending}>
             {pending ? "…" : "Enregistrer"}
           </Button>
         </form>
-        {erreur ? (
-          <p className="text-xs text-destructive">{erreur}</p>
-        ) : (
-          <p className="text-xs text-muted-foreground">
-            Prix client = prix en ¥ × ce taux + sa part des frais au prix coûtant. Les articles déjà enregistrés
-            gardent leur taux.
-          </p>
-        )}
       </CardContent>
     </Card>
   );

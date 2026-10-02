@@ -57,7 +57,7 @@ export async function enregistrerCommande(
   const montant =
     articles.length > 0 ? montantArticlesCny(articles).toFixed(2) : champs.montantArticlesCny;
 
-  const { tauxVenteCnyMga: tauxVenteDefaut } = await getParametres();
+  const { tauxVenteCnyMga: tauxVenteDefaut, gainMinimumMga: gainMinimumDefaut } = await getParametres();
 
   const data = {
     ...champs,
@@ -76,6 +76,7 @@ export async function enregistrerCommande(
     clientId: a.destination === "CLIENT" ? a.clientId ?? null : null,
     // Taux de vente figé sur l'article ; pas de prix de vente pour un article personnel
     tauxVenteCnyMga: a.destination === "PERSONNEL" ? null : a.tauxVenteCnyMga ?? tauxVenteDefaut,
+    gainMinimumMga: a.destination === "PERSONNEL" ? null : a.gainMinimumMga ?? gainMinimumDefaut,
   }));
   // Le statut de la commande suit celui de ses articles
   const statutArticles = statutDepuisArticles(articlesData.map((a) => a.statut));

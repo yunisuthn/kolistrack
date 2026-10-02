@@ -142,12 +142,12 @@ export function ApplicationsManager({ applications }: { applications: Applicatio
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="POURCENTAGE">Pourcentage (%)</SelectItem>
-                      <SelectItem value="FIXE">Montant fixe (¥)</SelectItem>
+                      <SelectItem value="FIXE">Montant fixe (元)</SelectItem>
                     </SelectContent>
                   </Select>
                 </Champ>
                 <Champ
-                  label={edition.fraisType === "POURCENTAGE" ? "Valeur (%)" : "Valeur (¥)"}
+                  label={edition.fraisType === "POURCENTAGE" ? "Valeur (%)" : "Valeur (元)"}
                   htmlFor="app-valeur"
                   erreur={erreurs.fraisValeur}
                 >

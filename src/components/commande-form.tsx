@@ -33,7 +33,7 @@ type ArticleForm = CommandeFormValues["articles"][number];
 let compteurCle = 0;
 const NOUVEAU_CLIENT = "__nouveau";
 
-const nouvelArticle = (tauxVente: string): ArticleForm => ({
+const nouvelArticle = (options: OptionsFormulaire): ArticleForm => ({
   cle: `nouveau-${++compteurCle}`,
   nom: "",
   quantite: "1",
@@ -42,7 +42,8 @@ const nouvelArticle = (tauxVente: string): ArticleForm => ({
   statut: "COMMANDEE",
   destination: "STOCK",
   clientId: "",
-  tauxVenteCnyMga: tauxVente,
+  tauxVenteCnyMga: options.tauxVenteDefaut,
+  gainMinimumMga: options.gainMinimumDefaut,
 });
 
 type Props = {
@@ -75,7 +76,7 @@ export function CommandeForm({ options, tauxActuels, initial, aujourdhui }: Prop
         tauxDeviseTransitaireMga: "",
         dateRecuperation: "",
         notes: "",
-        articles: [nouvelArticle(options.tauxVenteDefaut)],
+        articles: [nouvelArticle(options)],
       },
   );
 
@@ -112,6 +113,7 @@ export function CommandeForm({ options, tauxActuels, initial, aujourdhui }: Prop
       articles: articlesRemplis.map((a) => ({
         ...a,
         tauxVenteCnyMga: a.tauxVenteCnyMga || options.tauxVenteDefaut,
+        gainMinimumMga: a.gainMinimumMga || options.gainMinimumDefaut,
       })),
     },
     tauxActuels ?? undefined,
@@ -143,6 +145,8 @@ export function CommandeForm({ options, tauxActuels, initial, aujourdhui }: Prop
               destination,
               tauxVenteCnyMga:
                 destination !== "PERSONNEL" && !a.tauxVenteCnyMga ? options.tauxVenteDefaut : a.tauxVenteCnyMga,
+              gainMinimumMga:
+                destination !== "PERSONNEL" && !a.gainMinimumMga ? options.gainMinimumDefaut : a.gainMinimumMga,
             }
           : a,
       ),
@@ -180,6 +184,7 @@ export function CommandeForm({ options, tauxActuels, initial, aujourdhui }: Prop
       destination: a.destination,
       clientId: a.clientId,
       tauxVenteCnyMga: a.tauxVenteCnyMga,
+      gainMinimumMga: a.gainMinimumMga,
     }));
     startTransition(async () => {
       const res = await enregistrerCommande(initial?.id ?? null, {
@@ -281,7 +286,7 @@ export function CommandeForm({ options, tauxActuels, initial, aujourdhui }: Prop
                       onChange={(e) => majArticle(i, "quantite", e.target.value)}
                     />
                   </Champ>
-                  <Champ label="Prix unit. (¥)" htmlFor={`a-prix-${i}`} erreur={erreurArticle(i, "prixUnitaireCny")}>
+                  <Champ label="Prix unit. (元)" htmlFor={`a-prix-${i}`} erreur={erreurArticle(i, "prixUnitaireCny")}>
                     <Input
                       id={`a-prix-${i}`}
                       inputMode="decimal"
@@ -323,7 +328,7 @@ export function CommandeForm({ options, tauxActuels, initial, aujourdhui }: Prop
                     </Select>
                   </Champ>
                 </div>
-                <div className="grid gap-3 sm:grid-cols-3">
+                <div className="grid gap-3 sm:grid-cols-2">
                   <Champ label="Destination" erreur={erreurArticle(i, "destination")}>
                     <Select value={a.destination} onValueChange={(x) => choisirDestination(i, x as DestinationCode)}>
                       <SelectTrigger className="w-full">
@@ -364,7 +369,7 @@ export function CommandeForm({ options, tauxActuels, initial, aujourdhui }: Prop
                   )}
                   {a.destination !== "PERSONNEL" && (
                     <Champ
-                      label="Taux de vente (Ar/¥)"
+                      label="Taux de vente (Ar/元)"
                       htmlFor={`a-tv-${i}`}
                       erreur={erreurArticle(i, "tauxVenteCnyMga")}
                       aide={
@@ -381,11 +386,30 @@ export function CommandeForm({ options, tauxActuels, initial, aujourdhui }: Prop
                       />
                     </Champ>
                   )}
+                  {a.destination !== "PERSONNEL" && (
+                    <Champ
+                      label="Gain minimum (Ar/unité)"
+                      htmlFor={`a-gm-${i}`}
+                      erreur={erreurArticle(i, "gainMinimumMga")}
+                      aide={
+                        a.gainMinimumMga !== options.gainMinimumDefaut
+                          ? `Par défaut : ${formatMGA(options.gainMinimumDefaut)}`
+                          : undefined
+                      }
+                    >
+                      <Input
+                        id={`a-gm-${i}`}
+                        inputMode="decimal"
+                        value={a.gainMinimumMga}
+                        onChange={(e) => majArticle(i, "gainMinimumMga", e.target.value)}
+                      />
+                    </Champ>
+                  )}
                 </div>
                 <PrixArticle cout={coutArticle(a)} destination={a.destination} />
               </div>
             ))}
-            <Button type="button" variant="outline" className="w-full" onClick={() => maj("articles", [...v.articles, nouvelArticle(options.tauxVenteDefaut)])}>
+            <Button type="button" variant="outline" className="w-full" onClick={() => maj("articles", [...v.articles, nouvelArticle(options)])}>
               <Plus /> Ajouter un article
             </Button>
           </CardContent>
@@ -398,7 +422,7 @@ export function CommandeForm({ options, tauxActuels, initial, aujourdhui }: Prop
           </CardHeader>
           <CardContent className="grid gap-4 sm:grid-cols-2">
             <Champ
-              label="Montant des articles (¥)"
+              label="Montant des articles (元)"
               htmlFor="montantArticlesCny"
               erreur={erreurs.montantArticlesCny}
               aide={montantAuto ? "Calculé depuis les articles" : "Saisie libre (aucun article détaillé)"}
@@ -413,7 +437,7 @@ export function CommandeForm({ options, tauxActuels, initial, aujourdhui }: Prop
               />
             </Champ>
             <Champ
-              label="Frais application (¥)"
+              label="Frais application (元)"
               htmlFor="fraisAppCny"
               erreur={erreurs.fraisAppCny}
               aide={
@@ -447,7 +471,7 @@ export function CommandeForm({ options, tauxActuels, initial, aujourdhui }: Prop
                 )}
               </div>
             </Champ>
-            <Champ label="Livraison en Chine (¥)" htmlFor="fraisLivraisonCny" erreur={erreurs.fraisLivraisonCny}>
+            <Champ label="Livraison en Chine (元)" htmlFor="fraisLivraisonCny" erreur={erreurs.fraisLivraisonCny}>
               <Input
                 id="fraisLivraisonCny"
                 inputMode="decimal"
@@ -456,7 +480,7 @@ export function CommandeForm({ options, tauxActuels, initial, aujourdhui }: Prop
               />
             </Champ>
             <Champ
-              label="Taux 1 ¥ → Ar (figé)"
+              label="Taux 1 元 → Ar (figé)"
               htmlFor="tauxCnyMga"
               erreur={erreurs.tauxCnyMga}
               aide={tauxActuels ? `Taux du jour : ${formatTaux(tauxActuels.CNY)}` : "Taux du jour indisponible"}
@@ -689,6 +713,7 @@ function PrixArticle({ cout, destination }: { cout?: CoutArticle; destination: D
           <span className="text-green-700 tabular-nums dark:text-green-400">
             {formatMGA(cout.margeLigneMga)}
           </span>
+          {cout.gainMinimumApplique && " (minimum)"}
         </>
       )}
     </p>
