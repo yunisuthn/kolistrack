@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ExternalLink, Pencil } from "lucide-react";
-import { StatutBadge, StatutTotalBadge } from "@/components/statut-badge";
+import { Pencil } from "lucide-react";
+import { DestinationBadge, StatutBadge, StatutTotalBadge } from "@/components/statut-badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
@@ -129,6 +129,37 @@ export default async function CommandePage({ params }: PageProps<"/commandes/[id
             </CardContent>
           </Card>
 
+          {/* Vente */}
+          {c.articles.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center justify-between gap-2">
+                  Vente <StatutTotalBadge statut={calcul.statutTotal} />
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2 text-sm">
+                <Ligne label="À facturer aux clients" valeur={formatMGA(calcul.ventes.clientsMga)} />
+                <Ligne label="Stock à vendre" valeur={formatMGA(calcul.ventes.stockMga)} />
+                {calcul.ventes.personnelMga.gt(0) && (
+                  <Ligne label="Pour moi (coût, sans gain)" valeur={formatMGA(calcul.ventes.personnelMga)} />
+                )}
+                <Separator />
+                <div className="flex items-baseline justify-between gap-2">
+                  <span className="font-medium">Gain prévu</span>
+                  <span className="text-xl font-semibold text-green-700 tabular-nums dark:text-green-400">
+                    {formatMGA(calcul.ventes.margeMga)}
+                  </span>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Prix client = prix en ¥ × taux de vente + sa part des frais au prix coûtant. Gain = prix en ¥ ×
+                  (taux de vente − taux réel {formatTaux(c.tauxCnyMga)}).
+                  {calcul.statutTotal !== "DEFINITIF" &&
+                    " Les prix changeront quand les frais réels du transitaire seront saisis."}
+                </p>
+              </CardContent>
+            </Card>
+          )}
+
           {/* Articles */}
           <Card>
             <CardHeader>
@@ -142,36 +173,15 @@ export default async function CommandePage({ params }: PageProps<"/commandes/[id
                 const cout = calcul.coutsArticles[i];
                 return (
                   <div key={a.id} className="flex gap-3 py-3 first:pt-0 last:pb-0">
-                    {a.image && (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={a.image}
-                        alt=""
-                        className="size-16 shrink-0 rounded-md border object-cover"
-                        loading="lazy"
-                        referrerPolicy="no-referrer"
-                      />
-                    )}
                     <div className="min-w-0 flex-1 space-y-1">
                       <div className="flex items-start justify-between gap-2">
-                        <p className="font-medium">
-                          {a.nom}
-                          {a.lienProduit && (
-                            <a
-                              href={a.lienProduit}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="ml-1 inline-flex align-middle text-muted-foreground hover:text-foreground"
-                              aria-label="Voir le produit"
-                            >
-                              <ExternalLink className="size-3.5" />
-                            </a>
-                          )}
-                        </p>
+                        <p className="font-medium">{a.nom}</p>
                         <span className="shrink-0 text-sm tabular-nums">{formatCNY(cout.totalLigneCny)}</span>
                       </div>
                       <div className="flex flex-wrap items-center gap-2">
                         <StatutArticle articleId={a.id} statut={a.statut} />
+                        <DestinationBadge destination={a.destination} />
+                        {a.client && <span className="text-sm font-medium">{a.client.nom}</span>}
                         <span className="font-mono text-xs">
                           {a.codeSuivi ?? <span className="text-muted-foreground">Sans code de suivi</span>}
                         </span>
@@ -187,6 +197,23 @@ export default async function CommandePage({ params }: PageProps<"/commandes/[id
                           <span className="text-muted-foreground"> · {formatMGA(cout.coutRevientLigneMga)} au total</span>
                         )}
                       </p>
+                      {cout.prixVenteLigneMga && a.tauxVenteCnyMga && (
+                        <p className="text-sm">
+                          {a.destination === "CLIENT" ? "Prix client" : "Prix de vente"} :{" "}
+                          <span className="font-medium tabular-nums">{formatMGA(cout.prixVenteUnitaireMga)}</span>
+                          <span className="text-muted-foreground"> / unité</span>
+                          {a.quantite > 1 && (
+                            <span className="text-muted-foreground"> · {formatMGA(cout.prixVenteLigneMga)} au total</span>
+                          )}
+                          <span className="text-muted-foreground">
+                            {" "}
+                            · à {formatTaux(a.tauxVenteCnyMga)} · gain{" "}
+                          </span>
+                          <span className="text-green-700 tabular-nums dark:text-green-400">
+                            {formatMGA(cout.margeLigneMga)}
+                          </span>
+                        </p>
+                      )}
                     </div>
                   </div>
                 );

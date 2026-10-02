@@ -8,6 +8,7 @@ import type { StatutCommande } from "@/generated/prisma/enums";
 import { prisma } from "@/lib/prisma";
 import { exigerSession, type ResultatAction } from "@/lib/auth";
 import { montantArticlesCny } from "@/lib/calculs";
+import { getParametres } from "@/lib/commandes";
 import { STATUT_LABELS, statutDepuisArticles, statutsAnterieurs } from "@/lib/statuts";
 import {
   changementStatutArticleSchema,
@@ -56,6 +57,8 @@ export async function enregistrerCommande(
   const montant =
     articles.length > 0 ? montantArticlesCny(articles).toFixed(2) : champs.montantArticlesCny;
 
+  const { tauxVenteCnyMga: tauxVenteDefaut } = await getParametres();
+
   const data = {
     ...champs,
     montantArticlesCny: montant,
@@ -65,12 +68,14 @@ export async function enregistrerCommande(
   };
   const articlesData = articles.map((a) => ({
     nom: a.nom,
-    lienProduit: a.lienProduit ?? null,
     quantite: a.quantite,
     prixUnitaireCny: a.prixUnitaireCny,
-    image: a.image ?? null,
     codeSuivi: a.codeSuivi ?? null,
     statut: a.statut ?? ("COMMANDEE" as const),
+    destination: a.destination,
+    clientId: a.destination === "CLIENT" ? a.clientId ?? null : null,
+    // Taux de vente figé sur l'article ; pas de prix de vente pour un article personnel
+    tauxVenteCnyMga: a.destination === "PERSONNEL" ? null : a.tauxVenteCnyMga ?? tauxVenteDefaut,
   }));
   // Le statut de la commande suit celui de ses articles
   const statutArticles = statutDepuisArticles(articlesData.map((a) => a.statut));

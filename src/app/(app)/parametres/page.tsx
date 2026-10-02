@@ -1,14 +1,17 @@
 import type { Metadata } from "next";
+import { getParametres } from "@/lib/commandes";
 import { prisma } from "@/lib/prisma";
 import { logout } from "@/app/login/actions";
 import { Button } from "@/components/ui/button";
 import { ApplicationsManager, type ApplicationDto } from "./applications-manager";
+import { ClientsManager, type ClientDto } from "./clients-manager";
+import { TauxVenteForm } from "./taux-vente-form";
 import { TransitairesManager, type TransitaireDto } from "./transitaires-manager";
 
 export const metadata: Metadata = { title: "Paramètres" };
 
 export default async function ParametresPage() {
-  const [applications, transitaires] = await Promise.all([
+  const [applications, transitaires, clients, parametres] = await Promise.all([
     prisma.application.findMany({
       orderBy: [{ actif: "desc" }, { nom: "asc" }],
       include: { _count: { select: { commandes: true } } },
@@ -17,6 +20,11 @@ export default async function ParametresPage() {
       orderBy: { nom: "asc" },
       include: { _count: { select: { commandes: true } } },
     }),
+    prisma.client.findMany({
+      orderBy: { nom: "asc" },
+      include: { _count: { select: { articles: true } } },
+    }),
+    getParametres(),
   ]);
 
   const apps: ApplicationDto[] = applications.map((a) => ({
@@ -39,9 +47,19 @@ export default async function ParametresPage() {
     nbCommandes: t._count.commandes,
   }));
 
+  const cls: ClientDto[] = clients.map((c) => ({
+    id: c.id,
+    nom: c.nom,
+    telephone: c.telephone ?? "",
+    notes: c.notes ?? "",
+    nbArticles: c._count.articles,
+  }));
+
   return (
     <div className="space-y-8">
       <h1 className="text-xl font-semibold">Paramètres</h1>
+      <TauxVenteForm tauxVenteCnyMga={parametres.tauxVenteCnyMga.toString()} />
+      <ClientsManager clients={cls} />
       <ApplicationsManager applications={apps} />
       <TransitairesManager transitaires={trans} />
       <form action={logout} className="md:hidden">

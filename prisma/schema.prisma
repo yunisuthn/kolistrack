@@ -30,6 +30,13 @@ enum StatutCommande {
   ANNULEE
 }
 
+// À qui va un article : un client qui l'a commandé, le stock à vendre, ou soi-même
+enum DestinationArticle {
+  CLIENT
+  STOCK
+  PERSONNEL
+}
+
 model Application {
   id          String    @id @default(cuid())
   nom         String    @unique
@@ -103,10 +110,34 @@ model Article {
   // Non unique : plusieurs articles peuvent voyager dans le même colis.
   codeSuivi       String?
   statut          StatutCommande @default(COMMANDEE)
+  destination     DestinationArticle @default(STOCK)
+  clientId        String?
+  client          Client?  @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  // Taux de vente figé (ex. 900 Ar/¥) ; vide pour un article personnel.
+  // Prix client = total ¥ × ce taux + part des frais au prix coûtant.
+  tauxVenteCnyMga Decimal? @db.Decimal(14, 6)
 
   @@index([commandeId])
   @@index([nom])
   @@index([codeSuivi])
+  @@index([clientId])
+}
+
+model Client {
+  id        String    @id @default(cuid())
+  nom       String    @unique
+  telephone String?
+  notes     String?
+  articles  Article[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
+// Réglages globaux : une seule ligne (id = 1)
+model Parametres {
+  id              Int      @id @default(1)
+  tauxVenteCnyMga Decimal  @default(900) @db.Decimal(14, 6)
+  updatedAt       DateTime @updatedAt
 }
 
 model HistoriqueStatut {

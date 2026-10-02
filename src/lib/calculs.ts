@@ -7,6 +7,7 @@ import Decimal from "decimal.js";
 export type DecimalLike = Decimal.Value | { toString(): string } | null | undefined;
 export type DeviseCode = "MGA" | "USD" | "CNY";
 export type FraisTypeCode = "POURCENTAGE" | "FIXE";
+export type DestinationCode = "CLIENT" | "STOCK" | "PERSONNEL";
 
 /** Convertit une valeur (string, number, Prisma.Decimal…) en Decimal, ou null si vide. */
 export function dec(value: DecimalLike): Decimal | null {
@@ -78,7 +79,12 @@ export type CommandeCalculInput = {
   fraisTransitaireReel: DecimalLike;
   deviseTransitaire: DeviseCode;
   tauxDeviseTransitaireMga: DecimalLike;
-  articles?: (ArticleCalcul & { id?: string; nom?: string })[];
+  articles?: (ArticleCalcul & {
+    id?: string;
+    nom?: string;
+    destination?: DestinationCode;
+    tauxVenteCnyMga?: DecimalLike;
+  })[];
 };
 
 export type CoutArticle = {
@@ -90,6 +96,22 @@ export type CoutArticle = {
   fraisRepartisMga: Decimal;
   coutRevientLigneMga: Decimal;
   coutRevientUnitaireMga: Decimal;
+  /** Prix demandé : total ¥ × taux de vente + frais répartis (au prix coûtant). Null si personnel. */
+  prixVenteLigneMga: Decimal | null;
+  prixVenteUnitaireMga: Decimal | null;
+  /** Gain : total ¥ × (taux de vente − taux réel). Null si personnel. */
+  margeLigneMga: Decimal | null;
+};
+
+export type TotauxVente = {
+  /** À encaisser auprès des clients (articles CLIENT) */
+  clientsMga: Decimal;
+  /** Valeur de vente des articles en stock (articles STOCK) */
+  stockMga: Decimal;
+  /** Gain prévu sur les articles CLIENT et STOCK */
+  margeMga: Decimal;
+  /** Coût de revient des articles personnels */
+  personnelMga: Decimal;
 };
 
 export type CommandeCalcul = {
@@ -103,6 +125,7 @@ export type CommandeCalcul = {
   coutTotalMga: Decimal;
   statutTotal: StatutTotal;
   coutsArticles: CoutArticle[];
+  ventes: TotauxVente;
 };
 
 /**
@@ -156,6 +179,8 @@ export function calculerCommande(
     else if (baseQuantite.gt(0)) part = quantite.div(baseQuantite);
     const fraisRepartis = fraisTotalMga.mul(part);
     const coutLigne = ligneMga.add(fraisRepartis);
+    const tauxVente = a.destination === "PERSONNEL" ? null : dec(a.tauxVenteCnyMga);
+    const prixVente = tauxVente ? ligneCny.mul(tauxVente).add(fraisRepartis) : null;
     return {
       id: a.id,
       nom: a.nom,
@@ -165,7 +190,25 @@ export function calculerCommande(
       fraisRepartisMga: fraisRepartis,
       coutRevientLigneMga: coutLigne,
       coutRevientUnitaireMga: quantite.gt(0) ? coutLigne.div(quantite) : new Decimal(0),
+      prixVenteLigneMga: prixVente,
+      prixVenteUnitaireMga: prixVente && quantite.gt(0) ? prixVente.div(quantite) : null,
+      margeLigneMga: prixVente ? prixVente.sub(coutLigne) : null,
     };
+  });
+
+  const ventes: TotauxVente = {
+    clientsMga: new Decimal(0),
+    stockMga: new Decimal(0),
+    margeMga: new Decimal(0),
+    personnelMga: new Decimal(0),
+  };
+  articles.forEach((a, i) => {
+    const cout = coutsArticles[i];
+    if (a.destination === "PERSONNEL") ventes.personnelMga = ventes.personnelMga.add(cout.coutRevientLigneMga);
+    if (!cout.prixVenteLigneMga) return;
+    if (a.destination === "CLIENT") ventes.clientsMga = ventes.clientsMga.add(cout.prixVenteLigneMga);
+    else ventes.stockMga = ventes.stockMga.add(cout.prixVenteLigneMga);
+    ventes.margeMga = ventes.margeMga.add(cout.margeLigneMga ?? 0);
   });
 
   return {
@@ -177,5 +220,6 @@ export function calculerCommande(
     coutTotalMga,
     statutTotal,
     coutsArticles,
+    ventes,
   };
 }

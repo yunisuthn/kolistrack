@@ -1,5 +1,6 @@
 import type { StatutCommande } from "@/generated/prisma/enums";
-import type { StatutTotal } from "@/lib/calculs";
+import type { DestinationCode, StatutTotal } from "@/lib/calculs";
+import { DESTINATION_COULEURS, DESTINATION_LABELS } from "@/lib/destinations";
 import { STATUT_COULEURS, STATUT_LABELS } from "@/lib/statuts";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
@@ -33,4 +34,8 @@ export function StatutTotalBadge({ statut }: { statut: StatutTotal }) {
       {t.label}
     </Badge>
   );
+}
+
+export function DestinationBadge({ destination }: { destination: DestinationCode }) {
+  return <Badge className={DESTINATION_COULEURS[destination]}>{DESTINATION_LABELS[destination]}</Badge>;
 }
