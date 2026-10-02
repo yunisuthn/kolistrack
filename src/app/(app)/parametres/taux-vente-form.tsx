@@ -31,7 +31,7 @@ export function TauxVenteForm({ tauxVenteCnyMga }: { tauxVenteCnyMga: string }) 
       </CardHeader>
       <CardContent className="space-y-1.5">
         <form onSubmit={enregistrer} className="flex items-end gap-2">
-          <Champ label="Taux de vente 1 ¥ → Ar" htmlFor="tauxVente" className="flex-1">
+          <Champ label="Taux de vente 1 元 → Ar" htmlFor="tauxVente" className="flex-1">
             <Input id="tauxVente" inputMode="decimal" value={taux} onChange={(e) => setTaux(e.target.value)} />
           </Champ>
           <Button type="submit" disabled={pending}>
@@ -42,7 +42,7 @@ export function TauxVenteForm({ tauxVenteCnyMga }: { tauxVenteCnyMga: string }) 
           <p className="text-xs text-destructive">{erreur}</p>
         ) : (
           <p className="text-xs text-muted-foreground">
-            Prix client = prix en ¥ × ce taux + sa part des frais au prix coûtant. Les articles déjà enregistrés
+            Prix client = prix en 元 × ce taux + sa part des frais au prix coûtant. Les articles déjà enregistrés
             gardent leur taux.
           </p>
         )}

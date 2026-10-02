@@ -281,7 +281,7 @@ export function CommandeForm({ options, tauxActuels, initial, aujourdhui }: Prop
                       onChange={(e) => majArticle(i, "quantite", e.target.value)}
                     />
                   </Champ>
-                  <Champ label="Prix unit. (¥)" htmlFor={`a-prix-${i}`} erreur={erreurArticle(i, "prixUnitaireCny")}>
+                  <Champ label="Prix unit. (元)" htmlFor={`a-prix-${i}`} erreur={erreurArticle(i, "prixUnitaireCny")}>
                     <Input
                       id={`a-prix-${i}`}
                       inputMode="decimal"
@@ -364,7 +364,7 @@ export function CommandeForm({ options, tauxActuels, initial, aujourdhui }: Prop
                   )}
                   {a.destination !== "PERSONNEL" && (
                     <Champ
-                      label="Taux de vente (Ar/¥)"
+                      label="Taux de vente (Ar/元)"
                       htmlFor={`a-tv-${i}`}
                       erreur={erreurArticle(i, "tauxVenteCnyMga")}
                       aide={
@@ -398,7 +398,7 @@ export function CommandeForm({ options, tauxActuels, initial, aujourdhui }: Prop
           </CardHeader>
           <CardContent className="grid gap-4 sm:grid-cols-2">
             <Champ
-              label="Montant des articles (¥)"
+              label="Montant des articles (元)"
               htmlFor="montantArticlesCny"
               erreur={erreurs.montantArticlesCny}
               aide={montantAuto ? "Calculé depuis les articles" : "Saisie libre (aucun article détaillé)"}
@@ -413,7 +413,7 @@ export function CommandeForm({ options, tauxActuels, initial, aujourdhui }: Prop
               />
             </Champ>
             <Champ
-              label="Frais application (¥)"
+              label="Frais application (元)"
               htmlFor="fraisAppCny"
               erreur={erreurs.fraisAppCny}
               aide={
@@ -447,7 +447,7 @@ export function CommandeForm({ options, tauxActuels, initial, aujourdhui }: Prop
                 )}
               </div>
             </Champ>
-            <Champ label="Livraison en Chine (¥)" htmlFor="fraisLivraisonCny" erreur={erreurs.fraisLivraisonCny}>
+            <Champ label="Livraison en Chine (元)" htmlFor="fraisLivraisonCny" erreur={erreurs.fraisLivraisonCny}>
               <Input
                 id="fraisLivraisonCny"
                 inputMode="decimal"
@@ -456,7 +456,7 @@ export function CommandeForm({ options, tauxActuels, initial, aujourdhui }: Prop
               />
             </Champ>
             <Champ
-              label="Taux 1 ¥ → Ar (figé)"
+              label="Taux 1 元 → Ar (figé)"
               htmlFor="tauxCnyMga"
               erreur={erreurs.tauxCnyMga}
               aide={tauxActuels ? `Taux du jour : ${formatTaux(tauxActuels.CNY)}` : "Taux du jour indisponible"}

@@ -26,7 +26,7 @@ export function formatMGA(value: DecimalLike | Decimal, vide = "—"): string {
 
 export function formatCNY(value: DecimalLike | Decimal, vide = "—"): string {
   const n = toNumberForDisplay(value);
-  return n === null ? vide : `¥ ${cnyFormatter.format(n)}`;
+  return n === null ? vide : `${cnyFormatter.format(n)} 元`;
 }
 
 export function formatUSD(value: DecimalLike | Decimal, vide = "—"): string {

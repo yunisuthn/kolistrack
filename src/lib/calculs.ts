@@ -96,10 +96,10 @@ export type CoutArticle = {
   fraisRepartisMga: Decimal;
   coutRevientLigneMga: Decimal;
   coutRevientUnitaireMga: Decimal;
-  /** Prix demandé : total ¥ × taux de vente + frais répartis (au prix coûtant). Null si personnel. */
+  /** Prix demandé : total 元 × taux de vente + frais répartis (au prix coûtant). Null si personnel. */
   prixVenteLigneMga: Decimal | null;
   prixVenteUnitaireMga: Decimal | null;
-  /** Gain : total ¥ × (taux de vente − taux réel). Null si personnel. */
+  /** Gain : total 元 × (taux de vente − taux réel). Null si personnel. */
   margeLigneMga: Decimal | null;
 };
 

@@ -36,7 +36,7 @@ export function Convertisseur({ tauxCnyMga }: { tauxCnyMga: string | null }) {
         </Button>
       </PopoverTrigger>
       <PopoverContent align="end" className="w-72 space-y-3">
-        <p className="text-sm font-medium">Convertisseur ¥ ⇄ Ar</p>
+        <p className="text-sm font-medium">Convertisseur 元 ⇄ Ar</p>
         <div className="space-y-1.5">
           <Label htmlFor="conv-cny">Yuan (CNY)</Label>
           <Input
@@ -59,7 +59,7 @@ export function Convertisseur({ tauxCnyMga }: { tauxCnyMga: string | null }) {
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="conv-taux" className="text-xs text-muted-foreground">
-            Taux utilisé (1 ¥ en Ar){tauxCnyMga ? ` — du jour : ${formatTaux(tauxCnyMga)}` : ""}
+            Taux utilisé (1 元 en Ar){tauxCnyMga ? ` — du jour : ${formatTaux(tauxCnyMga)}` : ""}
           </Label>
           <Input
             id="conv-taux"

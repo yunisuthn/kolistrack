@@ -151,7 +151,7 @@ export default async function CommandePage({ params }: PageProps<"/commandes/[id
                   </span>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  Prix client = prix en ¥ × taux de vente + sa part des frais au prix coûtant. Gain = prix en ¥ ×
+                  Prix client = prix en 元 × taux de vente + sa part des frais au prix coûtant. Gain = prix en 元 ×
                   (taux de vente − taux réel {formatTaux(c.tauxCnyMga)}).
                   {calcul.statutTotal !== "DEFINITIF" &&
                     " Les prix changeront quand les frais réels du transitaire seront saisis."}

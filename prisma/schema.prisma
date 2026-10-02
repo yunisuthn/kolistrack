@@ -113,8 +113,8 @@ model Article {
   destination     DestinationArticle @default(STOCK)
   clientId        String?
   client          Client?  @relation(fields: [clientId], references: [id], onDelete: Restrict)
-  // Taux de vente figé (ex. 900 Ar/¥) ; vide pour un article personnel.
-  // Prix client = total ¥ × ce taux + part des frais au prix coûtant.
+  // Taux de vente figé (ex. 900 Ar/元) ; vide pour un article personnel.
+  // Prix client = total 元 × ce taux + part des frais au prix coûtant.
   tauxVenteCnyMga Decimal? @db.Decimal(14, 6)
 
   @@index([commandeId])
