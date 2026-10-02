@@ -84,6 +84,7 @@ export type CommandeCalculInput = {
     nom?: string;
     destination?: DestinationCode;
     tauxVenteCnyMga?: DecimalLike;
+    gainMinimumMga?: DecimalLike;
   })[];
 };
 
@@ -96,11 +97,16 @@ export type CoutArticle = {
   fraisRepartisMga: Decimal;
   coutRevientLigneMga: Decimal;
   coutRevientUnitaireMga: Decimal;
-  /** Prix demandé : total 元 × taux de vente + frais répartis (au prix coûtant). Null si personnel. */
+  /**
+   * Prix demandé : total 元 × taux de vente + frais répartis (au prix coûtant),
+   * relevé à coût de revient + gain minimum × quantité si besoin. Null si personnel.
+   */
   prixVenteLigneMga: Decimal | null;
   prixVenteUnitaireMga: Decimal | null;
-  /** Gain : total 元 × (taux de vente − taux réel). Null si personnel. */
+  /** Gain : total 元 × (taux de vente − taux réel), ou le gain minimum. Null si personnel. */
   margeLigneMga: Decimal | null;
+  /** Vrai si le prix a été relevé pour atteindre le gain minimum */
+  gainMinimumApplique: boolean;
 };
 
 export type TotauxVente = {
@@ -180,7 +186,10 @@ export function calculerCommande(
     const fraisRepartis = fraisTotalMga.mul(part);
     const coutLigne = ligneMga.add(fraisRepartis);
     const tauxVente = a.destination === "PERSONNEL" ? null : dec(a.tauxVenteCnyMga);
-    const prixVente = tauxVente ? ligneCny.mul(tauxVente).add(fraisRepartis) : null;
+    let prixVente = tauxVente ? ligneCny.mul(tauxVente).add(fraisRepartis) : null;
+    const prixPlancher = coutLigne.add(dec0(a.gainMinimumMga).mul(quantite));
+    const gainMinimumApplique = !!prixVente && prixVente.lt(prixPlancher);
+    if (gainMinimumApplique) prixVente = prixPlancher;
     return {
       id: a.id,
       nom: a.nom,
@@ -193,6 +202,7 @@ export function calculerCommande(
       prixVenteLigneMga: prixVente,
       prixVenteUnitaireMga: prixVente && quantite.gt(0) ? prixVente.div(quantite) : null,
       margeLigneMga: prixVente ? prixVente.sub(coutLigne) : null,
+      gainMinimumApplique,
     };
   });
 

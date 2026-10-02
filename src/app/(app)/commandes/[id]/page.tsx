@@ -152,7 +152,7 @@ export default async function CommandePage({ params }: PageProps<"/commandes/[id
                 </div>
                 <p className="text-xs text-muted-foreground">
                   Prix client = prix en 元 × taux de vente + sa part des frais au prix coûtant. Gain = prix en 元 ×
-                  (taux de vente − taux réel {formatTaux(c.tauxCnyMga)}).
+                  (taux de vente − taux réel {formatTaux(c.tauxCnyMga)}), avec au moins le gain minimum par unité.
                   {calcul.statutTotal !== "DEFINITIF" &&
                     " Les prix changeront quand les frais réels du transitaire seront saisis."}
                 </p>
@@ -212,6 +212,12 @@ export default async function CommandePage({ params }: PageProps<"/commandes/[id
                           <span className="text-green-700 tabular-nums dark:text-green-400">
                             {formatMGA(cout.margeLigneMga)}
                           </span>
+                          {cout.gainMinimumApplique && a.gainMinimumMga && (
+                            <span className="text-muted-foreground">
+                              {" "}
+                              (minimum {formatMGA(a.gainMinimumMga)} / unité)
+                            </span>
+                          )}
                         </p>
                       )}
                     </div>

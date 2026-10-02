@@ -45,6 +45,7 @@ export type CommandeFormValues = {
     destination: DestinationArticle;
     clientId: string;
     tauxVenteCnyMga: string;
+    gainMinimumMga: string;
   }[];
 };
 
@@ -78,6 +79,7 @@ export function versFormValues(c: CommandeComplete): CommandeFormValues {
       destination: a.destination,
       clientId: a.clientId ?? "",
       tauxVenteCnyMga: s(a.tauxVenteCnyMga),
+      gainMinimumMga: s(a.gainMinimumMga),
     })),
   };
 }
@@ -110,6 +112,7 @@ export async function getOptionsFormulaire(applicationIdCourant?: string) {
     })),
     clients,
     tauxVenteDefaut: parametres.tauxVenteCnyMga.toString(),
+    gainMinimumDefaut: parametres.gainMinimumMga.toString(),
   };
 }
 

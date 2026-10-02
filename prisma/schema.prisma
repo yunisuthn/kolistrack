@@ -116,6 +116,8 @@ model Article {
   // Taux de vente figé (ex. 900 Ar/元) ; vide pour un article personnel.
   // Prix client = total 元 × ce taux + part des frais au prix coûtant.
   tauxVenteCnyMga Decimal? @db.Decimal(14, 6)
+  // Gain minimum figé, par unité : le prix de vente est relevé s'il rapporte moins.
+  gainMinimumMga  Decimal? @db.Decimal(14, 2)
 
   @@index([commandeId])
   @@index([nom])
@@ -137,6 +139,7 @@ model Client {
 model Parametres {
   id              Int      @id @default(1)
   tauxVenteCnyMga Decimal  @default(900) @db.Decimal(14, 6)
+  gainMinimumMga  Decimal  @default(5000) @db.Decimal(14, 2)
   updatedAt       DateTime @updatedAt
 }
 

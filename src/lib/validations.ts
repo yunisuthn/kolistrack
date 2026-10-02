@@ -57,6 +57,8 @@ export const articleSchema = z
   clientId: z.preprocess((v) => (v === "" ? null : v), z.string().nullable().optional()),
   // Vide : le taux de vente par défaut des paramètres est appliqué à l'enregistrement
   tauxVenteCnyMga: tauxOptionnel,
+  // Gain minimum par unité ; vide : celui des paramètres
+  gainMinimumMga: montantOptionnel,
   })
   .refine((a) => a.destination !== "CLIENT" || !!a.clientId, {
     message: "Choisissez le client",
@@ -137,6 +139,7 @@ export const clientSchema = z.object({
 
 export const parametresSchema = z.object({
   tauxVenteCnyMga: taux,
+  gainMinimumMga: montant,
 });
 
 /**
