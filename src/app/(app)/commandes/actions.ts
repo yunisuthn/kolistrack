@@ -6,8 +6,8 @@ import { z } from "zod";
 import type { Prisma } from "@/generated/prisma/client";
 import type { StatutCommande } from "@/generated/prisma/enums";
 import { prisma } from "@/lib/prisma";
-import { exigerSession, type ResultatAction } from "@/lib/auth";
-import { montantArticlesCny } from "@/lib/calculs";
+import { estErreurCleEtrangere, exigerSession, type ResultatAction } from "@/lib/auth";
+import { montantArticlesCny, reglagesVenteArticle } from "@/lib/calculs";
 import { getParametres } from "@/lib/commandes";
 import { STATUT_LABELS, statutDepuisArticles, statutsAnterieurs } from "@/lib/statuts";
 import {
@@ -23,15 +23,14 @@ import {
 const NOTE_STATUT_ARTICLES = "D'après le statut des articles";
 
 /**
- * Applique un statut à la commande : les articles à la traîne (au statut actuel de la commande
- * ou moins avancés que le nouveau) le prennent, les articles déjà plus avancés ne reculent pas.
- * Retourne le statut de la commande qui en résulte.
+ * Applique un statut aux articles de la commande : les articles à la traîne (au statut actuel de la
+ * commande ou moins avancés que le nouveau) le prennent, les articles déjà plus avancés ne reculent pas.
  */
 async function appliquerStatutAuxArticles(
   tx: Prisma.TransactionClient,
   commandeId: string,
   statut: StatutCommande,
-): Promise<StatutCommande> {
+) {
   const avant = await tx.commande.findUniqueOrThrow({ where: { id: commandeId }, select: { statut: true } });
   await tx.article.updateMany({
     where: {
@@ -40,9 +39,45 @@ async function appliquerStatutAuxArticles(
     },
     data: { statut },
   });
-  const articles = await tx.article.findMany({ where: { commandeId }, select: { statut: true } });
-  return statutDepuisArticles(articles.map((a) => a.statut)) ?? statut;
 }
+
+/**
+ * Recalcule le statut de la commande d'après ses articles (sans articles : `statutSansArticles`,
+ * sinon inchangé) et trace le changement dans l'historique.
+ * `date` : date saisie par l'utilisateur ; elle devient aussi la date de récupération. Sans date
+ * (changement automatique), la date de récupération n'est posée que si elle manque.
+ */
+async function synchroniserStatutCommande(
+  tx: Prisma.TransactionClient,
+  commandeId: string,
+  {
+    statutSansArticles,
+    date,
+    note = NOTE_STATUT_ARTICLES,
+    toujoursHistoriser = false,
+  }: { statutSansArticles?: StatutCommande; date?: Date; note?: string | null; toujoursHistoriser?: boolean } = {},
+) {
+  const commande = await tx.commande.findUniqueOrThrow({
+    where: { id: commandeId },
+    select: { statut: true, dateRecuperation: true, articles: { select: { statut: true } } },
+  });
+  const statut =
+    statutDepuisArticles(commande.articles.map((a) => a.statut)) ?? statutSansArticles ?? commande.statut;
+  if (statut === commande.statut && !toujoursHistoriser) return;
+  await tx.commande.update({
+    where: { id: commandeId },
+    data: {
+      statut,
+      ...(statut === "RECUPEREE" && (date || !commande.dateRecuperation)
+        ? { dateRecuperation: date ?? new Date() }
+        : {}),
+    },
+  });
+  await tx.historiqueStatut.create({ data: { commandeId, statut, date: date ?? new Date(), note } });
+}
+
+const ERREUR_REFERENCE_SUPPRIMEE =
+  "Une application, un transitaire ou un client choisi a été supprimé entre-temps. Rechargez la page.";
 
 export async function enregistrerCommande(
   id: string | null,
@@ -51,13 +86,28 @@ export async function enregistrerCommande(
   await exigerSession();
   const parsed = commandeSchema.safeParse(input);
   if (!parsed.success) return { ok: false, erreurs: erreursDepuisZod(parsed.error) };
-  const { articles, dateCommande, dateRecuperation, ...champs } = parsed.data;
+  const { articles, statut, dateCommande, dateRecuperation, ...champs } = parsed.data;
+
+  // Un client supprimé depuis l'ouverture du formulaire : erreur sur le champ plutôt qu'une erreur serveur
+  const clientIds = [...new Set(articles.flatMap((a) => (a.destination === "CLIENT" && a.clientId ? [a.clientId] : [])))];
+  if (clientIds.length > 0) {
+    const existants = await prisma.client.findMany({ where: { id: { in: clientIds } }, select: { id: true } });
+    const ids = new Set(existants.map((c) => c.id));
+    const erreurs: Record<string, string> = {};
+    articles.forEach((a, i) => {
+      if (a.destination === "CLIENT" && a.clientId && !ids.has(a.clientId)) {
+        erreurs[`articles.${i}.clientId`] = "Ce client a été supprimé, choisissez-en un autre";
+      }
+    });
+    if (Object.keys(erreurs).length > 0) return { ok: false, erreurs };
+  }
 
   // Le montant des articles fait foi dès qu'il y a des articles détaillés
   const montant =
     articles.length > 0 ? montantArticlesCny(articles).toFixed(2) : champs.montantArticlesCny;
 
-  const { tauxVenteCnyMga: tauxVenteDefaut, gainMinimumMga: gainMinimumDefaut } = await getParametres();
+  const parametres = await getParametres();
+  const defautsVente = { tauxVenteDefaut: parametres.tauxVenteCnyMga, gainMinimumDefaut: parametres.gainMinimumMga };
 
   const data = {
     ...champs,
@@ -66,59 +116,69 @@ export async function enregistrerCommande(
     dateRecuperation: dateRecuperation ? dateDepuisInput(dateRecuperation) : null,
     notes: champs.notes ?? null,
   };
-  const articlesData = articles.map((a) => ({
+  // Champs saisis dans le formulaire ; lien produit et image n'y figurent pas et ne sont jamais écrasés
+  const champsArticle = (a: (typeof articles)[number]) => ({
     nom: a.nom,
     quantite: a.quantite,
     prixUnitaireCny: a.prixUnitaireCny,
     codeSuivi: a.codeSuivi ?? null,
-    statut: a.statut ?? ("COMMANDEE" as const),
     destination: a.destination,
     clientId: a.destination === "CLIENT" ? a.clientId ?? null : null,
-    // Taux de vente figé sur l'article ; pas de prix de vente pour un article personnel
-    tauxVenteCnyMga: a.destination === "PERSONNEL" ? null : a.tauxVenteCnyMga ?? tauxVenteDefaut,
-    gainMinimumMga: a.destination === "PERSONNEL" ? null : a.gainMinimumMga ?? gainMinimumDefaut,
-  }));
-  // Le statut de la commande suit celui de ses articles
-  const statutArticles = statutDepuisArticles(articlesData.map((a) => a.statut));
+    // Taux de vente et gain minimum figés sur l'article
+    ...reglagesVenteArticle(a, defautsVente),
+  });
 
   let commandeId: string;
-  if (id) {
-    await prisma.$transaction(async (tx) => {
-      const avant = await tx.commande.findUniqueOrThrow({ where: { id }, select: { statut: true } });
-      const statut = statutArticles ?? avant.statut;
-      const change = statut !== avant.statut;
-      await tx.commande.update({
-        where: { id },
+  try {
+    if (id) {
+      await prisma.$transaction(async (tx) => {
+        await tx.commande.update({ where: { id }, data });
+        // Les articles existants sont mis à jour sur place, les retirés supprimés, les nouveaux créés
+        const enBase = await tx.article.findMany({ where: { commandeId: id }, select: { id: true } });
+        const idsEnBase = new Set(enBase.map((a) => a.id));
+        const gardes = articles.filter((a) => a.id && idsEnBase.has(a.id));
+        const nouveaux = articles.filter((a) => !gardes.includes(a));
+        await tx.article.deleteMany({ where: { commandeId: id, id: { notIn: gardes.map((a) => a.id!) } } });
+        for (const a of gardes) {
+          // Statut transmis seulement s'il a été changé dans le formulaire : un changement fait
+          // entre-temps (autre onglet, « Marquer comme récupérée »…) n'est pas écrasé
+          await tx.article.update({
+            where: { id: a.id },
+            data: { ...champsArticle(a), ...(a.statut ? { statut: a.statut } : {}) },
+          });
+        }
+        if (nouveaux.length > 0) {
+          await tx.article.createMany({
+            data: nouveaux.map((a) => ({ ...champsArticle(a), statut: a.statut ?? "COMMANDEE", commandeId: id })),
+          });
+        }
+        // Le statut de la commande suit celui de ses articles
+        await synchroniserStatutCommande(tx, id);
+      });
+      commandeId = id;
+    } else {
+      const articlesData = articles.map((a) => ({ ...champsArticle(a), statut: a.statut ?? ("COMMANDEE" as const) }));
+      // Le statut de la commande suit celui de ses articles ; sans articles, celui choisi
+      const statutInitial = statutDepuisArticles(articlesData.map((a) => a.statut)) ?? statut ?? "COMMANDEE";
+      const creee = await prisma.commande.create({
         data: {
           ...data,
-          statut,
-          ...(change && statut === "RECUPEREE" && !data.dateRecuperation ? { dateRecuperation: new Date() } : {}),
-        },
-      });
-      await tx.article.deleteMany({ where: { commandeId: id } });
-      await tx.article.createMany({ data: articlesData.map((a) => ({ ...a, commandeId: id })) });
-      if (change) {
-        await tx.historiqueStatut.create({ data: { commandeId: id, statut, note: NOTE_STATUT_ARTICLES } });
-      }
-    });
-    commandeId = id;
-  } else {
-    const statutInitial = statutArticles ?? "COMMANDEE";
-    const creee = await prisma.commande.create({
-      data: {
-        ...data,
-        statut: statutInitial,
-        articles: { create: articlesData },
-        historique: {
-          create: {
-            statut: statutInitial,
-            date: data.dateCommande,
-            note: "Commande créée",
+          statut: statutInitial,
+          articles: { create: articlesData },
+          historique: {
+            create: {
+              statut: statutInitial,
+              date: data.dateCommande,
+              note: "Commande créée",
+            },
           },
         },
-      },
-    });
-    commandeId = creee.id;
+      });
+      commandeId = creee.id;
+    }
+  } catch (e) {
+    if (estErreurCleEtrangere(e)) return { ok: false, erreur: ERREUR_REFERENCE_SUPPRIMEE };
+    throw e;
   }
 
   revalidatePath("/", "layout");
@@ -142,16 +202,12 @@ export async function changerStatut(
   const dateStatut = dateDepuisInput(date);
 
   await prisma.$transaction(async (tx) => {
-    const statutFinal = await appliquerStatutAuxArticles(tx, commandeId, statut);
-    await tx.commande.update({
-      where: { id: commandeId },
-      data: {
-        statut: statutFinal,
-        ...(statutFinal === "RECUPEREE" ? { dateRecuperation: dateStatut } : {}),
-      },
-    });
-    await tx.historiqueStatut.create({
-      data: { commandeId, statut: statutFinal, date: dateStatut, note: note ?? null },
+    await appliquerStatutAuxArticles(tx, commandeId, statut);
+    await synchroniserStatutCommande(tx, commandeId, {
+      statutSansArticles: statut,
+      date: dateStatut,
+      note: note ?? null,
+      toujoursHistoriser: true,
     });
   });
 
@@ -172,25 +228,21 @@ export async function marquerRecuperee(
   const date = dateDepuisInput(d.dateRecuperation);
 
   await prisma.$transaction(async (tx) => {
-    await appliquerStatutAuxArticles(tx, d.commandeId, "RECUPEREE");
     await tx.commande.update({
       where: { id: d.commandeId },
       data: {
-        statut: "RECUPEREE",
         fraisTransitaireReel: d.fraisTransitaireReel,
         deviseTransitaire: d.deviseTransitaire,
         tauxDeviseTransitaireMga: d.tauxDeviseTransitaireMga ?? null,
         ...(d.poidsKg ? { poidsKg: d.poidsKg } : {}),
-        dateRecuperation: date,
       },
     });
-    await tx.historiqueStatut.create({
-      data: {
-        commandeId: d.commandeId,
-        statut: "RECUPEREE",
-        date,
-        note: d.note ?? `${STATUT_LABELS.RECUPEREE} — frais réels saisis`,
-      },
+    await appliquerStatutAuxArticles(tx, d.commandeId, "RECUPEREE");
+    await synchroniserStatutCommande(tx, d.commandeId, {
+      statutSansArticles: "RECUPEREE",
+      date,
+      note: d.note ?? `${STATUT_LABELS.RECUPEREE} — frais réels saisis`,
+      toujoursHistoriser: true,
     });
   });
 
@@ -208,24 +260,12 @@ export async function changerStatutArticle(
   const { articleId, statut } = parsed.data;
 
   await prisma.$transaction(async (tx) => {
-    const { commandeId, commande } = await tx.article.update({
+    const { commandeId } = await tx.article.update({
       where: { id: articleId },
       data: { statut },
-      select: { commandeId: true, commande: { select: { statut: true, dateRecuperation: true } } },
+      select: { commandeId: true },
     });
-    const articles = await tx.article.findMany({ where: { commandeId }, select: { statut: true } });
-    const statutCommande = statutDepuisArticles(articles.map((a) => a.statut)) ?? commande.statut;
-    if (statutCommande === commande.statut) return;
-    await tx.commande.update({
-      where: { id: commandeId },
-      data: {
-        statut: statutCommande,
-        ...(statutCommande === "RECUPEREE" && !commande.dateRecuperation ? { dateRecuperation: new Date() } : {}),
-      },
-    });
-    await tx.historiqueStatut.create({
-      data: { commandeId, statut: statutCommande, note: NOTE_STATUT_ARTICLES },
-    });
+    await synchroniserStatutCommande(tx, commandeId);
   });
 
   revalidatePath("/", "layout");

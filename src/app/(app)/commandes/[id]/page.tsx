@@ -37,6 +37,7 @@ export default async function CommandePage({ params }: PageProps<"/commandes/[id
   const calcul = calculerCommande({ ...c, articles: c.articles }, taux ?? undefined);
   const enCours = c.statut !== "RECUPEREE" && c.statut !== "ANNULEE";
   const cheminFraisDevise = c.deviseTransitaire !== "MGA";
+  const aVendre = c.articles.some((a) => a.destination !== "PERSONNEL");
 
   return (
     <div className="space-y-4">
@@ -130,7 +131,7 @@ export default async function CommandePage({ params }: PageProps<"/commandes/[id
           </Card>
 
           {/* Vente */}
-          {c.articles.length > 0 && (
+          {aVendre && (
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center justify-between gap-2">
@@ -138,8 +139,12 @@ export default async function CommandePage({ params }: PageProps<"/commandes/[id
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-2 text-sm">
-                <Ligne label="À facturer aux clients" valeur={formatMGA(calcul.ventes.clientsMga)} />
-                <Ligne label="Stock à vendre" valeur={formatMGA(calcul.ventes.stockMga)} />
+                {calcul.ventes.clientsMga.gt(0) && (
+                  <Ligne label="À facturer aux clients" valeur={formatMGA(calcul.ventes.clientsMga)} />
+                )}
+                {calcul.ventes.stockMga.gt(0) && (
+                  <Ligne label="Stock à vendre" valeur={formatMGA(calcul.ventes.stockMga)} />
+                )}
                 {calcul.ventes.personnelMga.gt(0) && (
                   <Ligne label="Pour moi (coût, sans gain)" valeur={formatMGA(calcul.ventes.personnelMga)} />
                 )}

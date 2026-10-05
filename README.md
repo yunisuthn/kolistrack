@@ -13,10 +13,10 @@ yuan (CNY) et toujours convertis en ariary (MGA).
 | --- | --- |
 | Tableau de bord `/` | Commandes par statut, montant en attente (MGA), total dépensé par mois (12 mois), commandes en attente depuis plus de 30 jours |
 | Commandes `/commandes` | Recherche (code de suivi des articles, nom d'article, notes), filtres (statut, application, transitaire, dates), tri, cartes sur mobile / tableau sur ordinateur |
-| Nouvelle / modifier | Ajout dynamique d'articles, frais d'application calculés automatiquement (modifiables), taux du jour pré-rempli (modifiable), estimation des frais transitaire depuis son tarif, totaux CNY et MGA en direct |
-| Détail `/commandes/[id]` | Coûts, coût de revient par article, historique des statuts, « Changer le statut », « Marquer comme récupérée » (frais réels, poids, date) |
+| Nouvelle / modifier | Ajout dynamique d'articles (code de suivi, statut, destination : client, à vendre ou pour moi ; taux de vente et gain minimum), frais d'application calculés automatiquement (modifiables), taux du jour pré-rempli (modifiable), estimation des frais transitaire depuis son tarif, totaux CNY et MGA en direct |
+| Détail `/commandes/[id]` | Coûts, coût de revient et prix de vente par article, gain prévu, statut par article, historique des statuts, « Changer le statut », « Marquer comme récupérée » (frais réels, poids, date) |
 | Recherche colis `/recherche` | Un champ unique : ouvre directement la commande si le code correspond exactement |
-| Paramètres `/parametres` | Applications (frais en % ou fixe) et transitaires (tarifs au kg / m³, devise) |
+| Paramètres `/parametres` | Taux de vente et gain minimum par défaut, clients, applications (frais en % ou fixe) et transitaires (tarifs au kg / m³, devise) |
 
 Le taux actuel (1 元 et 1 $ en Ar) est affiché dans l'en-tête, avec un convertisseur 元 ⇄ Ar
 accessible depuis toutes les pages.
@@ -32,6 +32,9 @@ accessible depuis toutes les pages.
   **« Estimé · sans transitaire »** (frais inconnus, non inclus)
 - **Coût de revient par article** : les frais (application, livraison, transitaire) sont répartis au
   prorata de la valeur de chaque article
+- **Prix de vente par article** (client ou à vendre) = prix en 元 × taux de vente + sa part des frais au prix
+  coûtant, relevé si besoin pour rapporter au moins le gain minimum par unité. Taux de vente et gain minimum
+  sont figés sur l'article (vides : valeurs par défaut des paramètres) ; un article « pour moi » n'a pas de prix de vente
 - L'estimation depuis le tarif du transitaire retient le plus élevé entre poids × tarif/kg et volume × tarif/m³
 
 Tous les montants sont stockés en `Decimal` et calculés avec `decimal.js` (jamais de nombres flottants).
@@ -44,8 +47,11 @@ Si l'API ne répond pas, le dernier taux connu est utilisé (signalé par ⚠ da
 
 ### Codes de suivi
 
-Ils sont enregistrés en majuscules et sans espaces : `yt 0001` et `YT0001` désignent le même colis.
-Un code est unique, mais il peut rester vide et être ajouté plus tard, quand il est connu.
+Ils sont saisis **par article**, car une commande peut arriver en plusieurs colis. Ils sont enregistrés en
+majuscules et sans espaces : `yt 0001` et `YT0001` désignent le même colis. Un code n'est pas unique :
+plusieurs articles d'un même colis partagent le même code. Il peut rester vide et être ajouté plus tard.
+
+Chaque article a aussi son propre statut ; celui de la commande suit l'article le moins avancé (hors annulés).
 
 ## Installation locale
 

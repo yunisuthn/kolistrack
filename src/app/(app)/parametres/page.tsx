@@ -59,8 +59,8 @@ export default async function ParametresPage() {
     <div className="space-y-8">
       <h1 className="text-xl font-semibold">Paramètres</h1>
       <TauxVenteForm
-        tauxVenteCnyMga={parametres.tauxVenteCnyMga.toString()}
-        gainMinimumMga={parametres.gainMinimumMga.toString()}
+        tauxVenteCnyMga={parametres.tauxVenteCnyMga}
+        gainMinimumMga={parametres.gainMinimumMga}
       />
       <ClientsManager clients={cls} />
       <ApplicationsManager applications={apps} />
