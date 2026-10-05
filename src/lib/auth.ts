@@ -17,3 +17,8 @@ export type ResultatAction<T = undefined> =
 export function estErreurUnicite(e: unknown): boolean {
   return typeof e === "object" && e !== null && "code" in e && (e as { code: string }).code === "P2002";
 }
+
+/** Clé étrangère invalide : l'élément référencé a été supprimé entre-temps. */
+export function estErreurCleEtrangere(e: unknown): boolean {
+  return typeof e === "object" && e !== null && "code" in e && (e as { code: string }).code === "P2003";
+}

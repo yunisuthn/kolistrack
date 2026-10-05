@@ -81,6 +81,8 @@ export const commandeSchema = z.object({
   tauxDeviseTransitaireMga: tauxOptionnel,
   dateRecuperation: z.preprocess((v) => (v === "" ? null : v), dateJour.nullable().optional()),
   notes: texteOptionnel(5000),
+  // Statut de départ d'une commande créée sans articles détaillés (sinon il suit les articles)
+  statut: statutSchema.optional(),
   articles: z.array(articleSchema).max(200),
 });
 export type CommandeInput = z.input<typeof commandeSchema>;

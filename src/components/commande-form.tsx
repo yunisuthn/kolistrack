@@ -19,6 +19,7 @@ import {
   calculerFraisApp,
   estimerFraisTransitaire,
   montantArticlesCny,
+  reglagesVenteArticle,
   type CoutArticle,
   type DestinationCode,
   type DeviseCode,
@@ -80,6 +81,8 @@ export function CommandeForm({ options, tauxActuels, initial, aujourdhui }: Prop
       },
   );
 
+  // Statut de départ d'une nouvelle commande sans articles détaillés (sinon il suit les articles)
+  const [statutInitial, setStatutInitial] = useState<ArticleForm["statut"]>("COMMANDEE");
   const [clients, setClients] = useState(options.clients);
   // Index de l'article pour lequel on crée un client (fenêtre ouverte)
   const [clientPourArticle, setClientPourArticle] = useState<number | null>(null);
@@ -110,11 +113,7 @@ export function CommandeForm({ options, tauxActuels, initial, aujourdhui }: Prop
       fraisTransitaireReel: v.fraisTransitaireReel,
       deviseTransitaire: v.deviseTransitaire,
       tauxDeviseTransitaireMga: v.tauxDeviseTransitaireMga,
-      articles: articlesRemplis.map((a) => ({
-        ...a,
-        tauxVenteCnyMga: a.tauxVenteCnyMga || options.tauxVenteDefaut,
-        gainMinimumMga: a.gainMinimumMga || options.gainMinimumDefaut,
-      })),
+      articles: articlesRemplis.map((a) => ({ ...a, ...reglagesVenteArticle(a, options) })),
     },
     tauxActuels ?? undefined,
   );
@@ -132,24 +131,6 @@ export function CommandeForm({ options, tauxActuels, initial, aujourdhui }: Prop
     setV((prev) => ({
       ...prev,
       articles: prev.articles.map((a, i) => (i === index ? { ...a, [champ]: valeur } : a)),
-    }));
-  }
-
-  function choisirDestination(index: number, destination: DestinationCode) {
-    setV((prev) => ({
-      ...prev,
-      articles: prev.articles.map((a, i) =>
-        i === index
-          ? {
-              ...a,
-              destination,
-              tauxVenteCnyMga:
-                destination !== "PERSONNEL" && !a.tauxVenteCnyMga ? options.tauxVenteDefaut : a.tauxVenteCnyMga,
-              gainMinimumMga:
-                destination !== "PERSONNEL" && !a.gainMinimumMga ? options.gainMinimumDefaut : a.gainMinimumMga,
-            }
-          : a,
-      ),
     }));
   }
 
@@ -176,11 +157,13 @@ export function CommandeForm({ options, tauxActuels, initial, aujourdhui }: Prop
   function soumettre(e: React.FormEvent) {
     e.preventDefault();
     const articles = articlesRemplis.map((a) => ({
+      id: a.id,
       nom: a.nom,
       quantite: a.quantite,
       prixUnitaireCny: a.prixUnitaireCny,
       codeSuivi: a.codeSuivi,
-      statut: a.statut,
+      // Statut envoyé seulement s'il a été changé ici, pour ne pas écraser un changement fait entre-temps
+      statut: a.statut !== initial?.articles.find((x) => x.cle === a.cle)?.statut ? a.statut : undefined,
       destination: a.destination,
       clientId: a.clientId,
       tauxVenteCnyMga: a.tauxVenteCnyMga,
@@ -192,6 +175,7 @@ export function CommandeForm({ options, tauxActuels, initial, aujourdhui }: Prop
         montantArticlesCny: montantArticles || "0",
         fraisAppCny: fraisApp || "0",
         fraisLivraisonCny: v.fraisLivraisonCny || "0",
+        statut: initial ? undefined : statutInitial,
         articles,
       });
       if (res.ok && res.data) {
@@ -246,6 +230,22 @@ export function CommandeForm({ options, tauxActuels, initial, aujourdhui }: Prop
                 onChange={(e) => maj("dateCommande", e.target.value)}
               />
             </Champ>
+            {!initial && !montantAuto && (
+              <Champ label="Statut initial" erreur={erreurs.statut} aide="Sans articles détaillés">
+                <Select value={statutInitial} onValueChange={(x) => setStatutInitial(x as ArticleForm["statut"])}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {TOUS_STATUTS.map((s) => (
+                      <SelectItem key={s} value={s}>
+                        {STATUT_LABELS[s]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Champ>
+            )}
           </CardContent>
         </Card>
 
@@ -330,7 +330,7 @@ export function CommandeForm({ options, tauxActuels, initial, aujourdhui }: Prop
                 </div>
                 <div className="grid gap-3 sm:grid-cols-2">
                   <Champ label="Destination" erreur={erreurArticle(i, "destination")}>
-                    <Select value={a.destination} onValueChange={(x) => choisirDestination(i, x as DestinationCode)}>
+                    <Select value={a.destination} onValueChange={(x) => majArticle(i, "destination", x as DestinationCode)}>
                       <SelectTrigger className="w-full">
                         <SelectValue />
                       </SelectTrigger>
@@ -373,7 +373,7 @@ export function CommandeForm({ options, tauxActuels, initial, aujourdhui }: Prop
                       htmlFor={`a-tv-${i}`}
                       erreur={erreurArticle(i, "tauxVenteCnyMga")}
                       aide={
-                        a.tauxVenteCnyMga !== options.tauxVenteDefaut
+                        a.tauxVenteCnyMga && a.tauxVenteCnyMga !== options.tauxVenteDefaut
                           ? `Par défaut : ${formatTaux(options.tauxVenteDefaut)}`
                           : undefined
                       }
@@ -381,6 +381,7 @@ export function CommandeForm({ options, tauxActuels, initial, aujourdhui }: Prop
                       <Input
                         id={`a-tv-${i}`}
                         inputMode="decimal"
+                        placeholder={options.tauxVenteDefaut}
                         value={a.tauxVenteCnyMga}
                         onChange={(e) => majArticle(i, "tauxVenteCnyMga", e.target.value)}
                       />
@@ -392,7 +393,7 @@ export function CommandeForm({ options, tauxActuels, initial, aujourdhui }: Prop
                       htmlFor={`a-gm-${i}`}
                       erreur={erreurArticle(i, "gainMinimumMga")}
                       aide={
-                        a.gainMinimumMga !== options.gainMinimumDefaut
+                        a.gainMinimumMga && a.gainMinimumMga !== options.gainMinimumDefaut
                           ? `Par défaut : ${formatMGA(options.gainMinimumDefaut)}`
                           : undefined
                       }
@@ -400,6 +401,7 @@ export function CommandeForm({ options, tauxActuels, initial, aujourdhui }: Prop
                       <Input
                         id={`a-gm-${i}`}
                         inputMode="decimal"
+                        placeholder={options.gainMinimumDefaut}
                         value={a.gainMinimumMga}
                         onChange={(e) => majArticle(i, "gainMinimumMga", e.target.value)}
                       />

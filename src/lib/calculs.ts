@@ -68,6 +68,21 @@ export function estimerFraisTransitaire(
   return arrondi2(Decimal.max(...candidats));
 }
 
+/**
+ * Taux de vente et gain minimum d'un article : un champ vide prend la valeur par défaut des
+ * paramètres ; un article personnel n'en a pas. Partagé par l'aperçu du formulaire et l'enregistrement.
+ */
+export function reglagesVenteArticle(
+  a: { destination: DestinationCode; tauxVenteCnyMga?: string | null; gainMinimumMga?: string | null },
+  defauts: { tauxVenteDefaut: string; gainMinimumDefaut: string },
+): { tauxVenteCnyMga: string | null; gainMinimumMga: string | null } {
+  if (a.destination === "PERSONNEL") return { tauxVenteCnyMga: null, gainMinimumMga: null };
+  return {
+    tauxVenteCnyMga: a.tauxVenteCnyMga?.trim() || defauts.tauxVenteDefaut,
+    gainMinimumMga: a.gainMinimumMga?.trim() || defauts.gainMinimumDefaut,
+  };
+}
+
 export type StatutTotal = "DEFINITIF" | "ESTIME" | "INCOMPLET";
 
 export type CommandeCalculInput = {

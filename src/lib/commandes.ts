@@ -37,6 +37,8 @@ export type CommandeFormValues = {
   notes: string;
   articles: {
     cle: string;
+    /** Id de l'article enregistré ; absent pour un nouvel article */
+    id?: string;
     nom: string;
     quantite: string;
     prixUnitaireCny: string;
@@ -71,6 +73,7 @@ export function versFormValues(c: CommandeComplete): CommandeFormValues {
     notes: c.notes ?? "",
     articles: c.articles.map((a) => ({
       cle: a.id,
+      id: a.id,
       nom: a.nom,
       quantite: String(a.quantite),
       prixUnitaireCny: s(a.prixUnitaireCny),
@@ -111,14 +114,18 @@ export async function getOptionsFormulaire(applicationIdCourant?: string) {
       tarifParM3: s(t.tarifParM3),
     })),
     clients,
-    tauxVenteDefaut: parametres.tauxVenteCnyMga.toString(),
-    gainMinimumDefaut: parametres.gainMinimumMga.toString(),
+    tauxVenteDefaut: parametres.tauxVenteCnyMga,
+    gainMinimumDefaut: parametres.gainMinimumMga,
   };
 }
 
-/** Réglages globaux (ligne unique, créée au besoin). */
-export function getParametres() {
-  return prisma.parametres.upsert({ where: { id: 1 }, create: { id: 1 }, update: {} });
+/** Réglages globaux (ligne unique id = 1, créée par la migration ; à défaut, valeurs par défaut du schéma). */
+export async function getParametres() {
+  const p = await prisma.parametres.findUnique({ where: { id: 1 } });
+  return {
+    tauxVenteCnyMga: p?.tauxVenteCnyMga.toString() ?? "900",
+    gainMinimumMga: p?.gainMinimumMga.toString() ?? "5000",
+  };
 }
 
 export type OptionsFormulaire = Awaited<ReturnType<typeof getOptionsFormulaire>>;
