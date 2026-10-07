@@ -21,9 +21,9 @@ const TOTAL: Record<StatutTotal, { label: string; className: string; titre: stri
     titre: "Basé sur l'estimation des frais du transitaire",
   },
   INCOMPLET: {
-    label: "Estimé · sans transitaire",
+    label: "Estimé · frais incomplets",
     className: "bg-orange-100 text-orange-900 dark:bg-orange-950 dark:text-orange-200",
-    titre: "Frais du transitaire encore inconnus : non inclus dans le total",
+    titre: "Frais du transitaire encore inconnus (en tout ou en partie) : non inclus dans le total",
   },
 };
 

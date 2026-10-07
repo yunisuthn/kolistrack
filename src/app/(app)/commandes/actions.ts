@@ -16,6 +16,7 @@ import {
   commandeSchema,
   dateDepuisInput,
   erreursDepuisZod,
+  recuperationColisSchema,
   recuperationSchema,
   type CommandeInput,
 } from "@/lib/validations";
@@ -86,7 +87,7 @@ export async function enregistrerCommande(
   await exigerSession();
   const parsed = commandeSchema.safeParse(input);
   if (!parsed.success) return { ok: false, erreurs: erreursDepuisZod(parsed.error) };
-  const { articles, statut, dateCommande, dateRecuperation, ...champs } = parsed.data;
+  const { articles, colis, statut, dateCommande, dateRecuperation, ...champs } = parsed.data;
 
   // Un client supprimé depuis l'ouverture du formulaire : erreur sur le champ plutôt qu'une erreur serveur
   const clientIds = [...new Set(articles.flatMap((a) => (a.destination === "CLIENT" && a.clientId ? [a.clientId] : [])))];
@@ -128,6 +129,10 @@ export async function enregistrerCommande(
     ...reglagesVenteArticle(a, defautsVente),
   });
 
+  // Un colis par code de suivi des articles : les frais d'un code qui n'est plus utilisé sont supprimés
+  const codes = new Set(articles.flatMap((a) => (a.codeSuivi ? [a.codeSuivi] : [])));
+  const colisData = [...new Map(colis.filter((x) => codes.has(x.codeSuivi)).map((x) => [x.codeSuivi, x])).values()];
+
   let commandeId: string;
   try {
     if (id) {
@@ -152,6 +157,16 @@ export async function enregistrerCommande(
             data: nouveaux.map((a) => ({ ...champsArticle(a), statut: a.statut ?? "COMMANDEE", commandeId: id })),
           });
         }
+        await tx.colis.deleteMany({
+          where: { commandeId: id, codeSuivi: { notIn: colisData.map((x) => x.codeSuivi) } },
+        });
+        for (const x of colisData) {
+          await tx.colis.upsert({
+            where: { commandeId_codeSuivi: { commandeId: id, codeSuivi: x.codeSuivi } },
+            create: { ...x, commandeId: id },
+            update: x,
+          });
+        }
         // Le statut de la commande suit celui de ses articles
         await synchroniserStatutCommande(tx, id);
       });
@@ -165,6 +180,7 @@ export async function enregistrerCommande(
           ...data,
           statut: statutInitial,
           articles: { create: articlesData },
+          colis: { create: colisData },
           historique: {
             create: {
               statut: statutInitial,
@@ -225,24 +241,83 @@ export async function marquerRecuperee(
   if (d.deviseTransitaire === "USD" && !d.tauxDeviseTransitaireMga) {
     return { ok: false, erreurs: { tauxDeviseTransitaireMga: "Indiquez le taux USD → MGA appliqué" } };
   }
+  const { modeFraisTransitaire } = await prisma.commande.findUniqueOrThrow({
+    where: { id: d.commandeId },
+    select: { modeFraisTransitaire: true },
+  });
+  const parColis = modeFraisTransitaire === "COLIS";
+  if (!parColis && !d.fraisTransitaireReel) {
+    return { ok: false, erreurs: { fraisTransitaireReel: "Indiquez les frais réels" } };
+  }
   const date = dateDepuisInput(d.dateRecuperation);
 
   await prisma.$transaction(async (tx) => {
     await tx.commande.update({
       where: { id: d.commandeId },
       data: {
-        fraisTransitaireReel: d.fraisTransitaireReel,
         deviseTransitaire: d.deviseTransitaire,
         tauxDeviseTransitaireMga: d.tauxDeviseTransitaireMga ?? null,
-        ...(d.poidsKg ? { poidsKg: d.poidsKg } : {}),
+        ...(parColis
+          ? {}
+          : { fraisTransitaireReel: d.fraisTransitaireReel, ...(d.poidsKg ? { poidsKg: d.poidsKg } : {}) }),
       },
     });
+    if (parColis) {
+      for (const x of d.colis) {
+        await tx.colis.updateMany({ where: { id: x.id, commandeId: d.commandeId }, data: { fraisReel: x.fraisReel } });
+      }
+    }
     await appliquerStatutAuxArticles(tx, d.commandeId, "RECUPEREE");
     await synchroniserStatutCommande(tx, d.commandeId, {
       statutSansArticles: "RECUPEREE",
       date,
       note: d.note ?? `${STATUT_LABELS.RECUPEREE} — frais réels saisis`,
       toujoursHistoriser: true,
+    });
+  });
+
+  revalidatePath("/", "layout");
+  return { ok: true };
+}
+
+/**
+ * Un colis arrivé (mode COLIS) : ses frais réels sont saisis et ses articles passent « Récupérée » ;
+ * le statut de la commande est recalculé.
+ */
+export async function marquerColisRecupere(
+  input: z.input<typeof recuperationColisSchema>,
+): Promise<ResultatAction> {
+  await exigerSession();
+  const parsed = recuperationColisSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, erreurs: erreursDepuisZod(parsed.error) };
+  const d = parsed.data;
+  const colis = await prisma.colis.findUnique({
+    where: { id: d.colisId },
+    select: { commandeId: true, codeSuivi: true, commande: { select: { deviseTransitaire: true } } },
+  });
+  if (!colis) return { ok: false, erreur: "Ce colis n'existe plus. Rechargez la page." };
+  if (colis.commande.deviseTransitaire === "USD" && !d.tauxDeviseTransitaireMga) {
+    return { ok: false, erreurs: { tauxDeviseTransitaireMga: "Indiquez le taux USD → MGA appliqué" } };
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.colis.update({
+      where: { id: d.colisId },
+      data: { fraisReel: d.fraisReel, ...(d.poidsKg ? { poidsKg: d.poidsKg } : {}) },
+    });
+    if (colis.commande.deviseTransitaire !== "MGA" && d.tauxDeviseTransitaireMga) {
+      await tx.commande.update({
+        where: { id: colis.commandeId },
+        data: { tauxDeviseTransitaireMga: d.tauxDeviseTransitaireMga },
+      });
+    }
+    await tx.article.updateMany({
+      where: { commandeId: colis.commandeId, codeSuivi: colis.codeSuivi, statut: { notIn: ["RECUPEREE", "ANNULEE"] } },
+      data: { statut: "RECUPEREE" },
+    });
+    await synchroniserStatutCommande(tx, colis.commandeId, {
+      date: dateDepuisInput(d.dateRecuperation),
+      note: `Colis ${colis.codeSuivi} récupéré — frais réels saisis`,
     });
   });
 

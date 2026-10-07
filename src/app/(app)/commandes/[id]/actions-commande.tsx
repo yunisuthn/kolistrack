@@ -34,7 +34,10 @@ type Props = {
   statutSuivant: StatutCommande | null;
   aujourdhui: string;
   recuperation: {
+    /** COLIS : un montant réel par colis à la place du montant de la commande */
+    parColis: boolean;
     fraisTransitaireReel: string;
+    colis: { id: string; codeSuivi: string; fraisReel: string }[];
     deviseTransitaire: Devise;
     tauxDeviseTransitaireMga: string;
     poidsKg: string;
@@ -88,7 +91,14 @@ export function ActionsCommande({ commandeId, statut, statutSuivant, aujourdhui,
 
   function validerRecuperation() {
     startTransition(async () => {
-      const res = await marquerRecuperee({ commandeId, ...recup });
+      const { parColis, colis, ...champs } = recup;
+      const res = await marquerRecuperee({
+        commandeId,
+        ...champs,
+        ...(parColis
+          ? { fraisTransitaireReel: "", poidsKg: "", colis: colis.map(({ id, fraisReel }) => ({ id, fraisReel })) }
+          : {}),
+      });
       if (res.ok) {
         toast.success("Commande marquée comme récupérée");
         setDialogRecup(false);
@@ -184,19 +194,47 @@ export function ActionsCommande({ commandeId, statut, statutSuivant, aujourdhui,
         <DialogContent className="max-h-[90svh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Marquer comme récupérée</DialogTitle>
-            <DialogDescription>Saisissez les frais réels payés au transitaire.</DialogDescription>
+            <DialogDescription>
+              {recup.parColis
+                ? "Saisissez les frais réels payés au transitaire pour chaque colis."
+                : "Saisissez les frais réels payés au transitaire."}
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
-            <div className="grid grid-cols-[1fr_120px] gap-3">
-              <Champ label="Frais réels" htmlFor="recup-frais" erreur={erreurs.fraisTransitaireReel}>
-                <Input
-                  id="recup-frais"
-                  inputMode="decimal"
-                  autoFocus
-                  value={recup.fraisTransitaireReel}
-                  onChange={(e) => setRecup({ ...recup, fraisTransitaireReel: e.target.value })}
-                />
-              </Champ>
+            {recup.parColis &&
+              recup.colis.map((x, i) => (
+                <Champ
+                  key={x.id}
+                  label={<>Frais réels du colis <span className="font-mono">{x.codeSuivi}</span></>}
+                  htmlFor={`recup-colis-${i}`}
+                  erreur={erreurs[`colis.${i}.fraisReel`]}
+                >
+                  <Input
+                    id={`recup-colis-${i}`}
+                    inputMode="decimal"
+                    autoFocus={i === 0}
+                    value={x.fraisReel}
+                    onChange={(e) =>
+                      setRecup({
+                        ...recup,
+                        colis: recup.colis.map((y, j) => (j === i ? { ...y, fraisReel: e.target.value } : y)),
+                      })
+                    }
+                  />
+                </Champ>
+              ))}
+            <div className={recup.parColis ? "" : "grid grid-cols-[1fr_120px] gap-3"}>
+              {!recup.parColis && (
+                <Champ label="Frais réels" htmlFor="recup-frais" erreur={erreurs.fraisTransitaireReel}>
+                  <Input
+                    id="recup-frais"
+                    inputMode="decimal"
+                    autoFocus
+                    value={recup.fraisTransitaireReel}
+                    onChange={(e) => setRecup({ ...recup, fraisTransitaireReel: e.target.value })}
+                  />
+                </Champ>
+              )}
               <Champ label="Devise" erreur={erreurs.deviseTransitaire}>
                 <Select
                   value={recup.deviseTransitaire}
@@ -229,14 +267,16 @@ export function ActionsCommande({ commandeId, statut, statutSuivant, aujourdhui,
               </Champ>
             )}
             <div className="grid grid-cols-2 gap-3">
-              <Champ label="Poids (kg)" htmlFor="recup-poids" erreur={erreurs.poidsKg}>
-                <Input
-                  id="recup-poids"
-                  inputMode="decimal"
-                  value={recup.poidsKg}
-                  onChange={(e) => setRecup({ ...recup, poidsKg: e.target.value })}
-                />
-              </Champ>
+              {!recup.parColis && (
+                <Champ label="Poids (kg)" htmlFor="recup-poids" erreur={erreurs.poidsKg}>
+                  <Input
+                    id="recup-poids"
+                    inputMode="decimal"
+                    value={recup.poidsKg}
+                    onChange={(e) => setRecup({ ...recup, poidsKg: e.target.value })}
+                  />
+                </Champ>
+              )}
               <Champ label="Date de récupération" htmlFor="recup-date" erreur={erreurs.dateRecuperation}>
                 <Input
                   id="recup-date"

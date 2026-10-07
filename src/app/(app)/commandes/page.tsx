@@ -62,7 +62,11 @@ export default async function CommandesPage({ searchParams }: PageProps<"/comman
       include: {
         application: { select: { nom: true } },
         transitaire: { select: { nom: true } },
-        articles: { select: { nom: true, quantite: true, codeSuivi: true }, orderBy: { id: "asc" } },
+        articles: {
+          select: { nom: true, quantite: true, prixUnitaireCny: true, codeSuivi: true, statut: true },
+          orderBy: { id: "asc" },
+        },
+        colis: { select: { codeSuivi: true, fraisEstime: true, fraisReel: true } },
       },
       orderBy: { dateCommande: "desc" },
     }),
@@ -73,7 +77,8 @@ export default async function CommandesPage({ searchParams }: PageProps<"/comman
 
   const lignes = commandes.map((c) => ({
     c,
-    calcul: calculerCommande({ ...c, articles: undefined }, taux ?? undefined),
+    // Articles transmis pour les frais par colis (articles sans code de suivi = total incomplet)
+    calcul: calculerCommande(c, taux ?? undefined),
   }));
   const ordreStatut = (s: string) => [...STATUTS_ORDONNES, "ANNULEE"].indexOf(s);
   lignes.sort((a, b) => {

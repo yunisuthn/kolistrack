@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import Decimal from "decimal.js";
 import { Pencil } from "lucide-react";
 import { DestinationBadge, StatutBadge, StatutTotalBadge } from "@/components/statut-badge";
 import { Button } from "@/components/ui/button";
@@ -20,7 +21,9 @@ import {
 } from "@/lib/format";
 import { STATUT_LABELS, statutSuivant } from "@/lib/statuts";
 import { getTauxActuels } from "@/lib/taux";
+import { MODE_FRAIS_LABELS } from "@/lib/modes-frais";
 import { ActionsCommande } from "./actions-commande";
+import { ColisCommande } from "./colis-commande";
 import { StatutArticle } from "./statut-article";
 
 export async function generateMetadata({ params }: PageProps<"/commandes/[id]">): Promise<Metadata> {
@@ -38,6 +41,11 @@ export default async function CommandePage({ params }: PageProps<"/commandes/[id
   const enCours = c.statut !== "RECUPEREE" && c.statut !== "ANNULEE";
   const cheminFraisDevise = c.deviseTransitaire !== "MGA";
   const aVendre = c.articles.some((a) => a.destination !== "PERSONNEL");
+  const parColis = c.modeFraisTransitaire === "COLIS";
+  const articlesActifs = c.articles.filter((a) => a.statut !== "ANNULEE");
+  const poidsColis = c.colis.reduce((acc, x) => (x.poidsKg ? acc.add(x.poidsKg.toString()) : acc), new Decimal(0));
+  const tauxDevise =
+    c.tauxDeviseTransitaireMga?.toString() ?? (c.deviseTransitaire === "USD" ? taux?.USD ?? "" : "");
 
   return (
     <div className="space-y-4">
@@ -68,11 +76,15 @@ export default async function CommandePage({ params }: PageProps<"/commandes/[id
         statutSuivant={statutSuivant(c.statut)}
         aujourdhui={toInputDate(new Date())}
         recuperation={{
+          parColis,
           fraisTransitaireReel: (c.fraisTransitaireReel ?? c.fraisTransitaireEstime)?.toString() ?? "",
+          colis: c.colis.map((x) => ({
+            id: x.id,
+            codeSuivi: x.codeSuivi,
+            fraisReel: (x.fraisReel ?? x.fraisEstime)?.toString() ?? "",
+          })),
           deviseTransitaire: c.deviseTransitaire,
-          tauxDeviseTransitaireMga:
-            c.tauxDeviseTransitaireMga?.toString() ??
-            (c.deviseTransitaire === "USD" ? taux?.USD ?? "" : ""),
+          tauxDeviseTransitaireMga: tauxDevise,
           poidsKg: c.poidsKg?.toString() ?? "",
         }}
       />
@@ -97,14 +109,26 @@ export default async function CommandePage({ params }: PageProps<"/commandes/[id
                 valeur={formatMGA(calcul.sousTotalMga)}
               />
               <Separator />
-              <Ligne
-                label="Frais transitaire estimés"
-                valeur={formatDevise(c.fraisTransitaireEstime, c.deviseTransitaire, "inconnus")}
-              />
-              <Ligne
-                label="Frais transitaire réels"
-                valeur={formatDevise(c.fraisTransitaireReel, c.deviseTransitaire, "non saisis")}
-              />
+              {parColis ? (
+                c.colis.map((x) => (
+                  <Ligne
+                    key={x.id}
+                    label={`Colis ${x.codeSuivi}${x.fraisReel ? "" : x.fraisEstime ? " (estimé)" : ""}`}
+                    valeur={formatDevise(x.fraisReel ?? x.fraisEstime, c.deviseTransitaire, "inconnus")}
+                  />
+                ))
+              ) : (
+                <>
+                  <Ligne
+                    label="Frais transitaire estimés"
+                    valeur={formatDevise(c.fraisTransitaireEstime, c.deviseTransitaire, "inconnus")}
+                  />
+                  <Ligne
+                    label="Frais transitaire réels"
+                    valeur={formatDevise(c.fraisTransitaireReel, c.deviseTransitaire, "non saisis")}
+                  />
+                </>
+              )}
               {cheminFraisDevise && calcul.tauxTransitaireUtilise && (
                 <Ligne
                   label={`Taux ${c.deviseTransitaire} → Ar`}
@@ -124,7 +148,9 @@ export default async function CommandePage({ params }: PageProps<"/commandes/[id
               </div>
               {calcul.statutTotal === "INCOMPLET" && (
                 <p className="text-xs text-muted-foreground">
-                  Les frais du transitaire ne sont pas encore connus et ne sont pas inclus.
+                  {parColis
+                    ? "Les frais de certains colis (ou d'articles encore sans code de suivi) ne sont pas encore connus et ne sont pas inclus."
+                    : "Les frais du transitaire ne sont pas encore connus et ne sont pas inclus."}
                 </p>
               )}
             </CardContent>
@@ -163,6 +189,27 @@ export default async function CommandePage({ params }: PageProps<"/commandes/[id
                 </p>
               </CardContent>
             </Card>
+          )}
+
+          {parColis && (
+            <ColisCommande
+              colis={c.colis.map((x) => {
+                const articles = c.articles.filter((a) => a.codeSuivi === x.codeSuivi);
+                return {
+                  id: x.id,
+                  codeSuivi: x.codeSuivi,
+                  poidsKg: x.poidsKg?.toString() ?? "",
+                  fraisEstime: x.fraisEstime?.toString() ?? "",
+                  fraisReel: x.fraisReel?.toString() ?? "",
+                  articles: articles.map((a) => a.nom),
+                  aRecuperer: articles.some((a) => a.statut !== "RECUPEREE" && a.statut !== "ANNULEE"),
+                };
+              })}
+              nbHorsColis={articlesActifs.filter((a) => !a.codeSuivi).length}
+              devise={c.deviseTransitaire}
+              tauxDevise={tauxDevise}
+              aujourdhui={toInputDate(new Date())}
+            />
           )}
 
           {/* Articles */}
@@ -231,7 +278,10 @@ export default async function CommandePage({ params }: PageProps<"/commandes/[id
               })}
               {c.articles.length > 0 && (
                 <p className="pt-3 text-xs text-muted-foreground">
-                  Le statut de la commande suit l&apos;article le moins avancé. Frais (application, livraison, transitaire) répartis au prorata de la valeur de chaque article.
+                  Le statut de la commande suit l&apos;article le moins avancé.{" "}
+                  {parColis
+                    ? "Frais d'application et de livraison répartis au prorata de la valeur de chaque article ; frais de chaque colis répartis entre ses articles."
+                    : "Frais (application, livraison, transitaire) répartis au prorata de la valeur de chaque article."}
                 </p>
               )}
             </CardContent>
@@ -246,8 +296,15 @@ export default async function CommandePage({ params }: PageProps<"/commandes/[id
             </CardHeader>
             <CardContent className="space-y-2 text-sm">
               <Ligne label="Transitaire" valeur={c.transitaire?.nom ?? "—"} />
-              <Ligne label="Poids" valeur={c.poidsKg ? `${formatNombre(c.poidsKg)} kg` : "—"} />
-              <Ligne label="Volume" valeur={c.volumeM3 ? `${formatNombre(c.volumeM3, 4)} m³` : "—"} />
+              <Ligne label="Frais transitaire" valeur={MODE_FRAIS_LABELS[c.modeFraisTransitaire]} />
+              {parColis ? (
+                <Ligne label="Poids des colis" valeur={poidsColis.gt(0) ? `${formatNombre(poidsColis)} kg` : "—"} />
+              ) : (
+                <>
+                  <Ligne label="Poids" valeur={c.poidsKg ? `${formatNombre(c.poidsKg)} kg` : "—"} />
+                  <Ligne label="Volume" valeur={c.volumeM3 ? `${formatNombre(c.volumeM3, 4)} m³` : "—"} />
+                </>
+              )}
               {c.notes && (
                 <>
                   <Separator />

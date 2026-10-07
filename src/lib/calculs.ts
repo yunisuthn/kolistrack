@@ -8,6 +8,7 @@ export type DecimalLike = Decimal.Value | { toString(): string } | null | undefi
 export type DeviseCode = "MGA" | "USD" | "CNY";
 export type FraisTypeCode = "POURCENTAGE" | "FIXE";
 export type DestinationCode = "CLIENT" | "STOCK" | "PERSONNEL";
+export type ModeFraisCode = "COMMANDE" | "COLIS";
 
 /** Convertit une valeur (string, number, Prisma.Decimal…) en Decimal, ou null si vide. */
 export function dec(value: DecimalLike): Decimal | null {
@@ -85,6 +86,9 @@ export function reglagesVenteArticle(
 
 export type StatutTotal = "DEFINITIF" | "ESTIME" | "INCOMPLET";
 
+/** Frais d'un colis, dans la devise transitaire de la commande */
+export type ColisCalcul = { codeSuivi: string; fraisEstime: DecimalLike; fraisReel: DecimalLike };
+
 export type CommandeCalculInput = {
   montantArticlesCny: DecimalLike;
   fraisAppCny: DecimalLike;
@@ -94,9 +98,15 @@ export type CommandeCalculInput = {
   fraisTransitaireReel: DecimalLike;
   deviseTransitaire: DeviseCode;
   tauxDeviseTransitaireMga: DecimalLike;
+  /** COLIS : les frais transitaire sont ceux de `colis` ; COMMANDE (défaut) : ceux de la commande */
+  modeFraisTransitaire?: ModeFraisCode;
+  colis?: ColisCalcul[];
   articles?: (ArticleCalcul & {
     id?: string;
     nom?: string;
+    /** Normalisé (voir normaliserCodeSuivi) : rattache l'article à son colis */
+    codeSuivi?: string | null;
+    statut?: string;
     destination?: DestinationCode;
     tauxVenteCnyMga?: DecimalLike;
     gainMinimumMga?: DecimalLike;
@@ -151,6 +161,8 @@ export type CommandeCalcul = {
 
 /**
  * Calcule sous-totaux, frais transitaire convertis, total et coût de revient par article.
+ * Frais d'application et de livraison : répartis entre tous les articles au prorata de leur valeur.
+ * Frais transitaire : de même en mode COMMANDE ; en mode COLIS, ceux de chaque colis entre ses articles.
  * @param tauxActuels taux du jour, utilisés en secours si la commande n'a pas de taux transitaire enregistré
  */
 export function calculerCommande(
@@ -165,10 +177,31 @@ export function calculerCommande(
   const sousTotalCny = montantArticles.add(fraisApp).add(fraisLivraison);
   const sousTotalMga = sousTotalCny.mul(tauxCny);
 
-  const reel = dec(c.fraisTransitaireReel);
-  const estime = dec(c.fraisTransitaireEstime);
-  const fraisTransitaireDevise = reel ?? estime;
-  const statutTotal: StatutTotal = reel ? "DEFINITIF" : estime ? "ESTIME" : "INCOMPLET";
+  const articles = c.articles ?? [];
+  const parColis = c.modeFraisTransitaire === "COLIS";
+  const colis = parColis ? (c.colis ?? []) : [];
+  // Montant retenu de chaque colis : réel, sinon estimé
+  const fraisColis = colis.map((x) => dec(x.fraisReel) ?? dec(x.fraisEstime));
+
+  let fraisTransitaireDevise: Decimal | null;
+  let statutTotal: StatutTotal;
+  if (parColis) {
+    const connus = fraisColis.filter((f): f is Decimal => f !== null);
+    fraisTransitaireDevise = connus.length > 0 ? connus.reduce((acc, f) => acc.add(f), new Decimal(0)) : null;
+    // Un article (non annulé) sans code de suivi n'est encore dans aucun colis : ses frais manquent
+    const articleHorsColis = articles.some((a) => a.statut !== "ANNULEE" && !a.codeSuivi);
+    statutTotal =
+      colis.length === 0 || connus.length < colis.length || articleHorsColis
+        ? "INCOMPLET"
+        : colis.every((x) => dec(x.fraisReel))
+          ? "DEFINITIF"
+          : "ESTIME";
+  } else {
+    const reel = dec(c.fraisTransitaireReel);
+    const estime = dec(c.fraisTransitaireEstime);
+    fraisTransitaireDevise = reel ?? estime;
+    statutTotal = reel ? "DEFINITIF" : estime ? "ESTIME" : "INCOMPLET";
+  }
 
   let tauxTransitaireUtilise: Decimal | null = null;
   if (c.deviseTransitaire === "MGA") tauxTransitaireUtilise = new Decimal(1);
@@ -185,20 +218,38 @@ export function calculerCommande(
 
   const coutTotalMga = sousTotalMga.add(fraisTransitaireMga ?? 0);
 
-  // Répartition proportionnelle à la valeur de chaque ligne (ou à la quantité si valeur nulle)
-  const articles = c.articles ?? [];
-  const fraisTotalMga = fraisApp.add(fraisLivraison).mul(tauxCny).add(fraisTransitaireMga ?? 0);
-  const baseValeur = montantArticlesCny(articles);
-  const baseQuantite = articles.reduce((acc, a) => acc.add(dec0(a.quantite)), new Decimal(0));
+  // Répartition d'un montant entre des articles, proportionnelle à la valeur de chaque ligne
+  // (ou à la quantité si valeur nulle)
+  const fraisRepartisParArticle = articles.map(() => new Decimal(0));
+  const repartir = (montantMga: Decimal, indices: number[]) => {
+    const baseValeur = montantArticlesCny(indices.map((i) => articles[i]));
+    const baseQuantite = indices.reduce((acc, i) => acc.add(dec0(articles[i].quantite)), new Decimal(0));
+    for (const i of indices) {
+      let part = new Decimal(0);
+      if (baseValeur.gt(0)) part = totalLigneCny(articles[i]).div(baseValeur);
+      else if (baseQuantite.gt(0)) part = dec0(articles[i].quantite).div(baseQuantite);
+      fraisRepartisParArticle[i] = fraisRepartisParArticle[i].add(montantMga.mul(part));
+    }
+  };
+  const tous = articles.map((_, i) => i);
+  repartir(
+    fraisApp.add(fraisLivraison).mul(tauxCny).add(parColis ? 0 : (fraisTransitaireMga ?? 0)),
+    tous,
+  );
+  if (tauxTransitaireUtilise) {
+    colis.forEach((x, j) => {
+      if (!fraisColis[j]) return;
+      const duColis = tous.filter((i) => articles[i].codeSuivi === x.codeSuivi);
+      // Colis sans article (code modifié entre-temps) : ses frais restent comptés, sur tous les articles
+      repartir(fraisColis[j].mul(tauxTransitaireUtilise), duColis.length > 0 ? duColis : tous);
+    });
+  }
 
-  const coutsArticles: CoutArticle[] = articles.map((a) => {
+  const coutsArticles: CoutArticle[] = articles.map((a, i) => {
     const quantite = dec0(a.quantite);
     const ligneCny = totalLigneCny(a);
     const ligneMga = ligneCny.mul(tauxCny);
-    let part = new Decimal(0);
-    if (baseValeur.gt(0)) part = ligneCny.div(baseValeur);
-    else if (baseQuantite.gt(0)) part = quantite.div(baseQuantite);
-    const fraisRepartis = fraisTotalMga.mul(part);
+    const fraisRepartis = fraisRepartisParArticle[i];
     const coutLigne = ligneMga.add(fraisRepartis);
     const tauxVente = a.destination === "PERSONNEL" ? null : dec(a.tauxVenteCnyMga);
     let prixVente = tauxVente ? ligneCny.mul(tauxVente).add(fraisRepartis) : null;
