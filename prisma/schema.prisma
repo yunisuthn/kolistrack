@@ -20,6 +20,12 @@ enum Devise {
   CNY
 }
 
+// Frais du transitaire : un montant pour toute la commande, ou un par colis (code de suivi)
+enum ModeFraisTransitaire {
+  COMMANDE
+  COLIS
+}
+
 enum StatutCommande {
   COMMANDEE
   EXPEDIEE_VERS_TRANSITAIRE
@@ -56,6 +62,8 @@ model Transitaire {
   tarifParKg Decimal?  @db.Decimal(14, 4)
   tarifParM3 Decimal?  @db.Decimal(14, 4)
   devise     Devise    @default(MGA)
+  // Mode habituel de ce transitaire, repris sur chaque nouvelle commande
+  modeFrais  ModeFraisTransitaire @default(COLIS)
   notes      String?
   commandes  Commande[]
   createdAt  DateTime  @default(now())
@@ -84,6 +92,9 @@ model Commande {
   fraisTransitaireReel      Decimal?       @db.Decimal(14, 2)
   deviseTransitaire         Devise         @default(MGA)
   tauxDeviseTransitaireMga  Decimal?       @db.Decimal(14, 6)
+  // COMMANDE : poids, volume et frais ci-dessus ; COLIS : ceux de chaque colis (même devise et taux)
+  modeFraisTransitaire      ModeFraisTransitaire @default(COMMANDE)
+  colis                     Colis[]
   dateRecuperation          DateTime?
   notes                     String?
   articles                  Article[]
@@ -123,6 +134,19 @@ model Article {
   @@index([nom])
   @@index([codeSuivi])
   @@index([clientId])
+}
+
+// Frais transitaire d'un colis (mode COLIS), partagés entre les articles qui portent ce code de suivi
+model Colis {
+  id          String   @id @default(cuid())
+  commandeId  String
+  commande    Commande @relation(fields: [commandeId], references: [id], onDelete: Cascade)
+  codeSuivi   String
+  poidsKg     Decimal? @db.Decimal(10, 3)
+  fraisEstime Decimal? @db.Decimal(14, 2)
+  fraisReel   Decimal? @db.Decimal(14, 2)
+
+  @@unique([commandeId, codeSuivi])
 }
 
 model Client {

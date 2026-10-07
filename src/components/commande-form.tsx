@@ -23,13 +23,17 @@ import {
   type CoutArticle,
   type DestinationCode,
   type DeviseCode,
+  type ModeFraisCode,
 } from "@/lib/calculs";
+import { normaliserCodeSuivi } from "@/lib/code-suivi";
 import type { CommandeFormValues, OptionsFormulaire } from "@/lib/commandes";
 import { formatCNY, formatDevise, formatMGA, formatTaux } from "@/lib/format";
 import { DESTINATION_LABELS, TOUTES_DESTINATIONS } from "@/lib/destinations";
+import { MODE_FRAIS_LABELS, TOUS_MODES_FRAIS } from "@/lib/modes-frais";
 import { STATUT_LABELS, TOUS_STATUTS } from "@/lib/statuts";
 
 type ArticleForm = CommandeFormValues["articles"][number];
+type ColisForm = CommandeFormValues["colis"][number];
 
 let compteurCle = 0;
 const NOUVEAU_CLIENT = "__nouveau";
@@ -75,6 +79,8 @@ export function CommandeForm({ options, tauxActuels, initial, aujourdhui }: Prop
         fraisTransitaireReel: "",
         deviseTransitaire: "MGA",
         tauxDeviseTransitaireMga: "",
+        modeFraisTransitaire: "COLIS",
+        colis: [],
         dateRecuperation: "",
         notes: "",
         articles: [nouvelArticle(options)],
@@ -103,6 +109,13 @@ export function CommandeForm({ options, tauxActuels, initial, aujourdhui }: Prop
   );
   const fraisApp = fraisAppManuel ? v.fraisAppCny : fraisAppCalcule;
 
+  // Un colis par code de suivi des articles ; ses frais sont gardés par code
+  const codeArticle = (a: ArticleForm) => normaliserCodeSuivi(a.codeSuivi);
+  const colisAffiches: ColisForm[] = [...new Set(articlesRemplis.map(codeArticle).filter(Boolean))].map(
+    (code) => v.colis.find((x) => x.codeSuivi === code) ?? { codeSuivi: code, poidsKg: "", fraisEstime: "", fraisReel: "" },
+  );
+  const nbHorsColis = articlesRemplis.filter((a) => a.statut !== "ANNULEE" && !codeArticle(a)).length;
+
   const calcul = calculerCommande(
     {
       montantArticlesCny: montantArticles,
@@ -113,7 +126,13 @@ export function CommandeForm({ options, tauxActuels, initial, aujourdhui }: Prop
       fraisTransitaireReel: v.fraisTransitaireReel,
       deviseTransitaire: v.deviseTransitaire,
       tauxDeviseTransitaireMga: v.tauxDeviseTransitaireMga,
-      articles: articlesRemplis.map((a) => ({ ...a, ...reglagesVenteArticle(a, options) })),
+      modeFraisTransitaire: v.modeFraisTransitaire,
+      colis: colisAffiches,
+      articles: articlesRemplis.map((a) => ({
+        ...a,
+        codeSuivi: codeArticle(a) || null,
+        ...reglagesVenteArticle(a, options),
+      })),
     },
     tauxActuels ?? undefined,
   );
@@ -134,12 +153,22 @@ export function CommandeForm({ options, tauxActuels, initial, aujourdhui }: Prop
     }));
   }
 
+  function majColis<K extends keyof ColisForm>(code: string, champ: K, valeur: ColisForm[K]) {
+    setV((prev) => ({
+      ...prev,
+      colis: prev.colis.some((x) => x.codeSuivi === code)
+        ? prev.colis.map((x) => (x.codeSuivi === code ? { ...x, [champ]: valeur } : x))
+        : [...prev.colis, { codeSuivi: code, poidsKg: "", fraisEstime: "", fraisReel: "", [champ]: valeur }],
+    }));
+  }
+
   function choisirTransitaire(id: string) {
     const t = options.transitaires.find((x) => x.id === id);
     setV((prev) => ({
       ...prev,
       transitaireId: id === "aucun" ? "" : id,
       deviseTransitaire: t ? t.devise : prev.deviseTransitaire,
+      modeFraisTransitaire: t ? t.modeFrais : prev.modeFraisTransitaire,
       tauxDeviseTransitaireMga:
         t?.devise === "USD" ? (prev.tauxDeviseTransitaireMga || tauxActuels?.USD || "") : prev.tauxDeviseTransitaireMga,
     }));
@@ -177,6 +206,7 @@ export function CommandeForm({ options, tauxActuels, initial, aujourdhui }: Prop
         fraisLivraisonCny: v.fraisLivraisonCny || "0",
         statut: initial ? undefined : statutInitial,
         articles,
+        colis: colisAffiches,
       });
       if (res.ok && res.data) {
         toast.success(initial ? "Commande mise à jour" : "Commande créée");
@@ -531,6 +561,23 @@ export function CommandeForm({ options, tauxActuels, initial, aujourdhui }: Prop
                 </SelectContent>
               </Select>
             </Champ>
+            <Champ label="Frais facturés" erreur={erreurs.modeFraisTransitaire}>
+              <Select
+                value={v.modeFraisTransitaire}
+                onValueChange={(x) => maj("modeFraisTransitaire", x as ModeFraisCode)}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {TOUS_MODES_FRAIS.map((m) => (
+                    <SelectItem key={m} value={m}>
+                      {MODE_FRAIS_LABELS[m]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Champ>
             <Champ label="Devise des frais transitaire" erreur={erreurs.deviseTransitaire}>
               <Select value={v.deviseTransitaire} onValueChange={(x) => choisirDevise(x as DeviseCode)}>
                 <SelectTrigger className="w-full">
@@ -542,57 +589,6 @@ export function CommandeForm({ options, tauxActuels, initial, aujourdhui }: Prop
                   <SelectItem value="CNY">Yuan (CNY)</SelectItem>
                 </SelectContent>
               </Select>
-            </Champ>
-            <Champ label="Poids (kg)" htmlFor="poidsKg" erreur={erreurs.poidsKg}>
-              <Input id="poidsKg" inputMode="decimal" value={v.poidsKg} onChange={(e) => maj("poidsKg", e.target.value)} />
-            </Champ>
-            <Champ label="Volume (m³)" htmlFor="volumeM3" erreur={erreurs.volumeM3}>
-              <Input id="volumeM3" inputMode="decimal" value={v.volumeM3} onChange={(e) => maj("volumeM3", e.target.value)} />
-            </Champ>
-            <Champ
-              label={`Frais estimés (${v.deviseTransitaire})`}
-              htmlFor="fraisTransitaireEstime"
-              erreur={erreurs.fraisTransitaireEstime}
-              aide={
-                estimationTarif && transitaire
-                  ? transitaire.devise === v.deviseTransitaire
-                    ? `D'après le tarif : ${formatDevise(estimationTarif, transitaire.devise)}`
-                    : `Tarif en ${transitaire.devise} ≠ devise choisie`
-                  : "Laisser vide si inconnu"
-              }
-            >
-              <div className="flex gap-2">
-                <Input
-                  id="fraisTransitaireEstime"
-                  inputMode="decimal"
-                  value={v.fraisTransitaireEstime}
-                  onChange={(e) => maj("fraisTransitaireEstime", e.target.value)}
-                />
-                {estimationTarif && transitaire?.devise === v.deviseTransitaire && (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="icon"
-                    aria-label="Utiliser l'estimation du tarif"
-                    onClick={() => maj("fraisTransitaireEstime", estimationTarif.toFixed(2))}
-                  >
-                    <Calculator />
-                  </Button>
-                )}
-              </div>
-            </Champ>
-            <Champ
-              label={`Frais réels (${v.deviseTransitaire})`}
-              htmlFor="fraisTransitaireReel"
-              erreur={erreurs.fraisTransitaireReel}
-              aide="À saisir lors de la récupération"
-            >
-              <Input
-                id="fraisTransitaireReel"
-                inputMode="decimal"
-                value={v.fraisTransitaireReel}
-                onChange={(e) => maj("fraisTransitaireReel", e.target.value)}
-              />
             </Champ>
             {v.deviseTransitaire !== "MGA" && (
               <Champ
@@ -612,6 +608,142 @@ export function CommandeForm({ options, tauxActuels, initial, aujourdhui }: Prop
                   onChange={(e) => maj("tauxDeviseTransitaireMga", e.target.value)}
                 />
               </Champ>
+            )}
+            {v.modeFraisTransitaire === "COLIS" ? (
+              <div className="space-y-3 sm:col-span-2">
+                {colisAffiches.length === 0 && (
+                  <p className="text-sm text-muted-foreground">
+                    Ajoutez un code de suivi aux articles : chaque code devient un colis avec ses propres frais.
+                  </p>
+                )}
+                {colisAffiches.map((x, j) => {
+                  const estimation =
+                    transitaire?.devise === v.deviseTransitaire
+                      ? estimerFraisTransitaire(transitaire, x.poidsKg, null)
+                      : null;
+                  const erreurColis = (champ: string) => erreurs[`colis.${j}.${champ}`];
+                  return (
+                    <div key={x.codeSuivi} className="space-y-3 rounded-lg border p-3">
+                      <div>
+                        <p className="font-mono text-sm font-medium">{x.codeSuivi}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {articlesRemplis
+                            .filter((a) => codeArticle(a) === x.codeSuivi)
+                            .map((a) => a.nom.trim() || "Article sans nom")
+                            .join(", ")}
+                        </p>
+                      </div>
+                      <div className="grid gap-3 sm:grid-cols-3">
+                        <Champ label="Poids (kg)" htmlFor={`c-poids-${j}`} erreur={erreurColis("poidsKg")}>
+                          <Input
+                            id={`c-poids-${j}`}
+                            inputMode="decimal"
+                            value={x.poidsKg}
+                            onChange={(e) => majColis(x.codeSuivi, "poidsKg", e.target.value)}
+                          />
+                        </Champ>
+                        <Champ
+                          label={`Frais estimés (${v.deviseTransitaire})`}
+                          htmlFor={`c-estime-${j}`}
+                          erreur={erreurColis("fraisEstime")}
+                          aide={estimation ? `Tarif : ${formatDevise(estimation, v.deviseTransitaire)}` : undefined}
+                        >
+                          <div className="flex gap-2">
+                            <Input
+                              id={`c-estime-${j}`}
+                              inputMode="decimal"
+                              value={x.fraisEstime}
+                              onChange={(e) => majColis(x.codeSuivi, "fraisEstime", e.target.value)}
+                            />
+                            {estimation && (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="icon"
+                                aria-label="Utiliser l'estimation du tarif"
+                                onClick={() => majColis(x.codeSuivi, "fraisEstime", estimation.toFixed(2))}
+                              >
+                                <Calculator />
+                              </Button>
+                            )}
+                          </div>
+                        </Champ>
+                        <Champ
+                          label={`Frais réels (${v.deviseTransitaire})`}
+                          htmlFor={`c-reel-${j}`}
+                          erreur={erreurColis("fraisReel")}
+                        >
+                          <Input
+                            id={`c-reel-${j}`}
+                            inputMode="decimal"
+                            value={x.fraisReel}
+                            onChange={(e) => majColis(x.codeSuivi, "fraisReel", e.target.value)}
+                          />
+                        </Champ>
+                      </div>
+                    </div>
+                  );
+                })}
+                {colisAffiches.length > 0 && nbHorsColis > 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    {nbHorsColis} article(s) sans code de suivi : leurs frais transitaire ne sont pas encore comptés.
+                  </p>
+                )}
+              </div>
+            ) : (
+              <>
+                <Champ label="Poids (kg)" htmlFor="poidsKg" erreur={erreurs.poidsKg}>
+                  <Input id="poidsKg" inputMode="decimal" value={v.poidsKg} onChange={(e) => maj("poidsKg", e.target.value)} />
+                </Champ>
+                <Champ label="Volume (m³)" htmlFor="volumeM3" erreur={erreurs.volumeM3}>
+                  <Input id="volumeM3" inputMode="decimal" value={v.volumeM3} onChange={(e) => maj("volumeM3", e.target.value)} />
+                </Champ>
+                <Champ
+                  label={`Frais estimés (${v.deviseTransitaire})`}
+                  htmlFor="fraisTransitaireEstime"
+                  erreur={erreurs.fraisTransitaireEstime}
+                  aide={
+                    estimationTarif && transitaire
+                      ? transitaire.devise === v.deviseTransitaire
+                        ? `D'après le tarif : ${formatDevise(estimationTarif, transitaire.devise)}`
+                        : `Tarif en ${transitaire.devise} ≠ devise choisie`
+                      : "Laisser vide si inconnu"
+                  }
+                >
+                  <div className="flex gap-2">
+                    <Input
+                      id="fraisTransitaireEstime"
+                      inputMode="decimal"
+                      value={v.fraisTransitaireEstime}
+                      onChange={(e) => maj("fraisTransitaireEstime", e.target.value)}
+                    />
+                    {estimationTarif && transitaire?.devise === v.deviseTransitaire && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        aria-label="Utiliser l'estimation du tarif"
+                        onClick={() => maj("fraisTransitaireEstime", estimationTarif.toFixed(2))}
+                      >
+                        <Calculator />
+                      </Button>
+                    )}
+                  </div>
+                </Champ>
+                <Champ
+                  label={`Frais réels (${v.deviseTransitaire})`}
+                  htmlFor="fraisTransitaireReel"
+                  erreur={erreurs.fraisTransitaireReel}
+                  aide="À saisir lors de la récupération"
+                >
+                  <Input
+                    id="fraisTransitaireReel"
+                    inputMode="decimal"
+                    value={v.fraisTransitaireReel}
+                    onChange={(e) => maj("fraisTransitaireReel", e.target.value)}
+                  />
+                </Champ>
+              </>
             )}
             {initial && (
               <Champ label="Date de récupération" htmlFor="dateRecuperation" erreur={erreurs.dateRecuperation}>

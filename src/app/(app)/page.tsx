@@ -29,7 +29,11 @@ export default async function TableauDeBord() {
     prisma.commande.findMany({
       include: {
         application: { select: { nom: true } },
-        articles: { select: { codeSuivi: true }, where: { codeSuivi: { not: null } }, take: 1, orderBy: { id: "asc" } },
+        articles: {
+          select: { quantite: true, prixUnitaireCny: true, codeSuivi: true, statut: true },
+          orderBy: { id: "asc" },
+        },
+        colis: { select: { codeSuivi: true, fraisEstime: true, fraisReel: true } },
       },
       orderBy: { dateCommande: "asc" },
     }),
@@ -48,7 +52,8 @@ export default async function TableauDeBord() {
   for (const c of commandes) {
     parStatut[c.statut]++;
     if (c.statut === "ANNULEE") continue;
-    const calcul = calculerCommande({ ...c, articles: undefined }, taux ?? undefined);
+    // Articles transmis pour les frais par colis (articles sans code de suivi = total incomplet)
+    const calcul = calculerCommande(c, taux ?? undefined);
 
     const cle = cleMois(c.dateCommande);
     parMois.set(cle, (parMois.get(cle) ?? new Decimal(0)).add(calcul.coutTotalMga));
@@ -58,7 +63,7 @@ export default async function TableauDeBord() {
       if (calcul.statutTotal !== "DEFINITIF") enAttenteEstime = true;
       const jours = joursDepuis(c.dateCommande);
       if (jours > SEUIL_RETARD_JOURS) {
-        enRetard.push({ id: c.id, app: c.application.nom, code: c.articles[0]?.codeSuivi ?? c.codeSuivi, date: c.dateCommande, statut: c.statut, jours });
+        enRetard.push({ id: c.id, app: c.application.nom, code: c.articles.find((a) => a.codeSuivi)?.codeSuivi ?? c.codeSuivi, date: c.dateCommande, statut: c.statut, jours });
       }
     }
   }

@@ -43,6 +43,7 @@ export default async function ParametresPage() {
     tarifParKg: t.tarifParKg?.toString() ?? "",
     tarifParM3: t.tarifParM3?.toString() ?? "",
     devise: t.devise,
+    modeFrais: t.modeFrais,
     notes: t.notes ?? "",
     nbCommandes: t._count.commandes,
   }));

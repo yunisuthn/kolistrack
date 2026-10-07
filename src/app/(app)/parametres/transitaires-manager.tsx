@@ -16,7 +16,9 @@ import {
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import type { ModeFraisCode } from "@/lib/calculs";
 import { formatDevise } from "@/lib/format";
+import { MODE_FRAIS_LABELS, TOUS_MODES_FRAIS } from "@/lib/modes-frais";
 import { enregistrerTransitaire, supprimerTransitaire } from "./actions";
 
 export type TransitaireDto = {
@@ -26,6 +28,7 @@ export type TransitaireDto = {
   tarifParKg: string;
   tarifParM3: string;
   devise: "MGA" | "USD" | "CNY";
+  modeFrais: ModeFraisCode;
   notes: string;
   nbCommandes: number;
 };
@@ -37,6 +40,7 @@ const VIDE: Omit<TransitaireDto, "nbCommandes"> = {
   tarifParKg: "",
   tarifParM3: "",
   devise: "MGA",
+  modeFrais: "COLIS",
   notes: "",
 };
 
@@ -97,6 +101,7 @@ export function TransitairesManager({ transitaires }: { transitaires: Transitair
                   t.tarifParKg && `${formatDevise(t.tarifParKg, t.devise)}/kg`,
                   t.tarifParM3 && `${formatDevise(t.tarifParM3, t.devise)}/m³`,
                   !t.tarifParKg && !t.tarifParM3 && `Tarif non renseigné (${t.devise})`,
+                  t.modeFrais === "COLIS" ? "frais par colis" : "frais par commande",
                 ]
                   .filter(Boolean)
                   .join(" · ")}
@@ -144,6 +149,27 @@ export function TransitairesManager({ transitaires }: { transitaires: Transitair
                     <SelectItem value="MGA">Ariary (MGA)</SelectItem>
                     <SelectItem value="USD">Dollar (USD)</SelectItem>
                     <SelectItem value="CNY">Yuan (CNY)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </Champ>
+              <Champ
+                label="Frais facturés"
+                erreur={erreurs.modeFrais}
+                aide="Repris sur chaque nouvelle commande, modifiable sur la commande"
+              >
+                <Select
+                  value={edition.modeFrais}
+                  onValueChange={(v) => setEdition({ ...edition, modeFrais: v as ModeFraisCode })}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {TOUS_MODES_FRAIS.map((m) => (
+                      <SelectItem key={m} value={m}>
+                        {MODE_FRAIS_LABELS[m]}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </Champ>

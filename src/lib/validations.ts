@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { toInputDate } from "./format";
+import { normaliserCodeSuivi } from "./code-suivi";
 import { TOUS_STATUTS } from "./statuts";
 
 // Les montants circulent en chaînes pour ne jamais passer par un float.
@@ -24,10 +25,7 @@ const texteOptionnel = (max: number) =>
     z.string().trim().max(max, `${max} caractères maximum`).nullable().optional(),
   );
 
-/** Codes de suivi stockés en majuscules sans espaces : unicité et recherche insensibles à la casse. */
-export function normaliserCodeSuivi(code: string): string {
-  return code.replace(/\s+/g, "").toUpperCase();
-}
+export { normaliserCodeSuivi } from "./code-suivi";
 
 const codeSuiviOptionnel = z.preprocess(
   (v) => (typeof v === "string" ? normaliserCodeSuivi(v) || null : v),
@@ -44,6 +42,7 @@ export const tauxOptionnel = nombreDecimalOptionnel(6, "Taux invalide");
 export const deviseSchema = z.enum(["MGA", "USD", "CNY"]);
 export const statutSchema = z.enum(TOUS_STATUTS);
 export const destinationSchema = z.enum(["CLIENT", "STOCK", "PERSONNEL"]);
+export const modeFraisSchema = z.enum(["COMMANDE", "COLIS"]);
 
 export const articleSchema = z
   .object({
@@ -65,6 +64,16 @@ export const articleSchema = z
     path: ["clientId"],
   });
 
+export const colisSchema = z.object({
+  codeSuivi: z.preprocess(
+    (v) => (typeof v === "string" ? normaliserCodeSuivi(v) : v),
+    z.string().min(1, "Code de suivi requis").max(100, "100 caractères maximum"),
+  ),
+  poidsKg: nombreDecimalOptionnel(3, "Poids invalide (3 décimales max)"),
+  fraisEstime: montantOptionnel,
+  fraisReel: montantOptionnel,
+});
+
 export const commandeSchema = z.object({
   applicationId: z.string().min(1, "Choisissez une application"),
   transitaireId: z.preprocess((v) => (v === "" || v === "aucun" ? null : v), z.string().nullable()),
@@ -79,6 +88,9 @@ export const commandeSchema = z.object({
   fraisTransitaireReel: montantOptionnel,
   deviseTransitaire: deviseSchema,
   tauxDeviseTransitaireMga: tauxOptionnel,
+  modeFraisTransitaire: modeFraisSchema,
+  // Frais de chaque code de suivi des articles (mode COLIS)
+  colis: z.array(colisSchema).max(200).default([]),
   dateRecuperation: z.preprocess((v) => (v === "" ? null : v), dateJour.nullable().optional()),
   notes: texteOptionnel(5000),
   // Statut de départ d'une commande créée sans articles détaillés (sinon il suit les articles)
@@ -101,12 +113,22 @@ export const changementStatutArticleSchema = z.object({
 
 export const recuperationSchema = z.object({
   commandeId: z.string().min(1),
-  fraisTransitaireReel: montant,
+  // Requis en mode COMMANDE ; en mode COLIS, les frais réels sont ceux de `colis`
+  fraisTransitaireReel: montantOptionnel,
+  colis: z.array(z.object({ id: z.string().min(1), fraisReel: montant })).max(200).default([]),
   deviseTransitaire: deviseSchema,
   tauxDeviseTransitaireMga: tauxOptionnel,
   poidsKg: nombreDecimalOptionnel(3, "Poids invalide (3 décimales max)"),
   dateRecuperation: dateJour,
   note: texteOptionnel(1000),
+});
+
+export const recuperationColisSchema = z.object({
+  colisId: z.string().min(1),
+  fraisReel: montant,
+  tauxDeviseTransitaireMga: tauxOptionnel,
+  poidsKg: nombreDecimalOptionnel(3, "Poids invalide (3 décimales max)"),
+  dateRecuperation: dateJour,
 });
 
 export const applicationSchema = z
@@ -129,6 +151,7 @@ export const transitaireSchema = z.object({
   tarifParKg: nombreDecimalOptionnel(4, "Tarif invalide"),
   tarifParM3: nombreDecimalOptionnel(4, "Tarif invalide"),
   devise: deviseSchema,
+  modeFrais: modeFraisSchema,
   notes: texteOptionnel(2000),
 });
 

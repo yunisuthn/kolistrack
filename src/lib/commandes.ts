@@ -1,12 +1,13 @@
 import "server-only";
 import type { Prisma } from "@/generated/prisma/client";
-import type { DestinationArticle, Devise, StatutCommande } from "@/generated/prisma/enums";
+import type { DestinationArticle, Devise, ModeFraisTransitaire, StatutCommande } from "@/generated/prisma/enums";
 import { prisma } from "./prisma";
 import { toInputDate } from "./format";
 
 export const commandeAvecRelations = {
   application: true,
   transitaire: true,
+  colis: { orderBy: { codeSuivi: "asc" } },
   articles: { orderBy: { id: "asc" }, include: { client: true } },
   historique: { orderBy: [{ date: "desc" }, { id: "desc" }] },
 } satisfies Prisma.CommandeInclude;
@@ -33,6 +34,9 @@ export type CommandeFormValues = {
   fraisTransitaireReel: string;
   deviseTransitaire: Devise;
   tauxDeviseTransitaireMga: string;
+  modeFraisTransitaire: ModeFraisTransitaire;
+  /** Frais par code de suivi (mode COLIS) ; un code sans entrée n'a pas encore de frais */
+  colis: { codeSuivi: string; poidsKg: string; fraisEstime: string; fraisReel: string }[];
   dateRecuperation: string;
   notes: string;
   articles: {
@@ -69,6 +73,13 @@ export function versFormValues(c: CommandeComplete): CommandeFormValues {
     fraisTransitaireReel: s(c.fraisTransitaireReel),
     deviseTransitaire: c.deviseTransitaire,
     tauxDeviseTransitaireMga: s(c.tauxDeviseTransitaireMga),
+    modeFraisTransitaire: c.modeFraisTransitaire,
+    colis: c.colis.map((x) => ({
+      codeSuivi: x.codeSuivi,
+      poidsKg: s(x.poidsKg),
+      fraisEstime: s(x.fraisEstime),
+      fraisReel: s(x.fraisReel),
+    })),
     dateRecuperation: toInputDate(c.dateRecuperation),
     notes: c.notes ?? "",
     articles: c.articles.map((a) => ({
@@ -110,6 +121,7 @@ export async function getOptionsFormulaire(applicationIdCourant?: string) {
       id: t.id,
       nom: t.nom,
       devise: t.devise,
+      modeFrais: t.modeFrais,
       tarifParKg: s(t.tarifParKg),
       tarifParM3: s(t.tarifParM3),
     })),
