@@ -111,6 +111,12 @@ export const changementStatutArticleSchema = z.object({
   statut: statutSchema,
 });
 
+export const deplacementArticlesSchema = z.object({
+  commandeSourceId: z.string().min(1),
+  commandeCibleId: z.string().min(1, "Choisissez la commande de destination"),
+  articleIds: z.array(z.string().min(1)).min(1, "Sélectionnez au moins un article").max(500),
+});
+
 export const recuperationSchema = z.object({
   commandeId: z.string().min(1),
   // Requis en mode COMMANDE ; en mode COLIS, les frais réels sont ceux de `colis`
@@ -123,11 +129,20 @@ export const recuperationSchema = z.object({
   note: texteOptionnel(1000),
 });
 
+// Un ou plusieurs colis récupérés ensemble : `fraisReel` est le total payé, réparti entre eux
 export const recuperationColisSchema = z.object({
-  colisId: z.string().min(1),
+  commandeId: z.string().min(1),
+  colis: z
+    .array(
+      z.object({
+        id: z.string().min(1),
+        poidsKg: nombreDecimalOptionnel(3, "Poids invalide (3 décimales max)"),
+      }),
+    )
+    .min(1, "Sélectionnez au moins un colis")
+    .max(200),
   fraisReel: montant,
   tauxDeviseTransitaireMga: tauxOptionnel,
-  poidsKg: nombreDecimalOptionnel(3, "Poids invalide (3 décimales max)"),
   dateRecuperation: dateJour,
 });
 

@@ -24,6 +24,7 @@ import { getTauxActuels } from "@/lib/taux";
 import { MODE_FRAIS_LABELS } from "@/lib/modes-frais";
 import { ActionsCommande } from "./actions-commande";
 import { ColisCommande } from "./colis-commande";
+import { BarreSelectionArticles, CaseArticle, SelectionArticles } from "./selection-articles";
 import { StatutArticle } from "./statut-article";
 
 export async function generateMetadata({ params }: PageProps<"/commandes/[id]">): Promise<Metadata> {
@@ -193,6 +194,7 @@ export default async function CommandePage({ params }: PageProps<"/commandes/[id
 
           {parColis && (
             <ColisCommande
+              commandeId={c.id}
               colis={c.colis.map((x) => {
                 const articles = c.articles.filter((a) => a.codeSuivi === x.codeSuivi);
                 return {
@@ -213,79 +215,88 @@ export default async function CommandePage({ params }: PageProps<"/commandes/[id
           )}
 
           {/* Articles */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Articles ({c.articles.length})</CardTitle>
-            </CardHeader>
-            <CardContent className="divide-y">
-              {c.articles.length === 0 && (
-                <p className="text-sm text-muted-foreground">Aucun article détaillé.</p>
-              )}
-              {c.articles.map((a, i) => {
-                const cout = calcul.coutsArticles[i];
-                return (
-                  <div key={a.id} className="flex gap-3 py-3 first:pt-0 last:pb-0">
-                    <div className="min-w-0 flex-1 space-y-1">
-                      <div className="flex items-start justify-between gap-2">
-                        <p className="font-medium">{a.nom}</p>
-                        <span className="shrink-0 text-sm tabular-nums">{formatCNY(cout.totalLigneCny)}</span>
-                      </div>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <StatutArticle articleId={a.id} statut={a.statut} />
-                        <DestinationBadge destination={a.destination} />
-                        {a.client && <span className="text-sm font-medium">{a.client.nom}</span>}
-                        <span className="font-mono text-xs">
-                          {a.codeSuivi ?? <span className="text-muted-foreground">Sans code de suivi</span>}
-                        </span>
-                      </div>
-                      <p className="text-sm text-muted-foreground">
-                        {a.quantite} × {formatCNY(a.prixUnitaireCny)} = {formatMGA(cout.totalLigneMga)}
-                      </p>
-                      <p className="text-sm">
-                        Coût de revient :{" "}
-                        <span className="font-medium tabular-nums">{formatMGA(cout.coutRevientUnitaireMga)}</span>
-                        <span className="text-muted-foreground"> / unité</span>
-                        {a.quantite > 1 && (
-                          <span className="text-muted-foreground"> · {formatMGA(cout.coutRevientLigneMga)} au total</span>
-                        )}
-                      </p>
-                      {cout.prixVenteLigneMga && a.tauxVenteCnyMga && (
+          <SelectionArticles
+            commandeId={c.id}
+            articleIds={c.articles.map((a) => a.id)}
+            tauxCnyMga={c.tauxCnyMga.toString()}
+          >
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center justify-between gap-2">
+                  Articles ({c.articles.length}) <BarreSelectionArticles />
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="divide-y">
+                {c.articles.length === 0 && (
+                  <p className="text-sm text-muted-foreground">Aucun article détaillé.</p>
+                )}
+                {c.articles.map((a, i) => {
+                  const cout = calcul.coutsArticles[i];
+                  return (
+                    <div key={a.id} className="flex gap-3 py-3 first:pt-0 last:pb-0">
+                      <CaseArticle articleId={a.id} nom={a.nom} />
+                      <div className="min-w-0 flex-1 space-y-1">
+                        <div className="flex items-start justify-between gap-2">
+                          <p className="font-medium">{a.nom}</p>
+                          <span className="shrink-0 text-sm tabular-nums">{formatCNY(cout.totalLigneCny)}</span>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <StatutArticle articleId={a.id} statut={a.statut} />
+                          <DestinationBadge destination={a.destination} />
+                          {a.client && <span className="text-sm font-medium">{a.client.nom}</span>}
+                          <span className="font-mono text-xs">
+                            {a.codeSuivi ?? <span className="text-muted-foreground">Sans code de suivi</span>}
+                          </span>
+                        </div>
+                        <p className="text-sm text-muted-foreground">
+                          {a.quantite} × {formatCNY(a.prixUnitaireCny)} = {formatMGA(cout.totalLigneMga)}
+                        </p>
                         <p className="text-sm">
-                          {a.destination === "CLIENT" ? "Prix client" : "Prix de vente"} :{" "}
-                          <span className="font-medium tabular-nums">{formatMGA(cout.prixVenteUnitaireMga)}</span>
+                          Coût de revient :{" "}
+                          <span className="font-medium tabular-nums">{formatMGA(cout.coutRevientUnitaireMga)}</span>
                           <span className="text-muted-foreground"> / unité</span>
                           {a.quantite > 1 && (
-                            <span className="text-muted-foreground"> · {formatMGA(cout.prixVenteLigneMga)} au total</span>
-                          )}
-                          <span className="text-muted-foreground">
-                            {" "}
-                            · à {formatTaux(a.tauxVenteCnyMga)} · gain{" "}
-                          </span>
-                          <span className="text-green-700 tabular-nums dark:text-green-400">
-                            {formatMGA(cout.margeLigneMga)}
-                          </span>
-                          {cout.gainMinimumApplique && a.gainMinimumMga && (
-                            <span className="text-muted-foreground">
-                              {" "}
-                              (minimum {formatMGA(a.gainMinimumMga)} / unité)
-                            </span>
+                            <span className="text-muted-foreground"> · {formatMGA(cout.coutRevientLigneMga)} au total</span>
                           )}
                         </p>
-                      )}
+                        {cout.prixVenteLigneMga && a.tauxVenteCnyMga && (
+                          <p className="text-sm">
+                            {a.destination === "CLIENT" ? "Prix client" : "Prix de vente"} :{" "}
+                            <span className="font-medium tabular-nums">{formatMGA(cout.prixVenteUnitaireMga)}</span>
+                            <span className="text-muted-foreground"> / unité</span>
+                            {a.quantite > 1 && (
+                              <span className="text-muted-foreground"> · {formatMGA(cout.prixVenteLigneMga)} au total</span>
+                            )}
+                            <span className="text-muted-foreground">
+                              {" "}
+                              · à {formatTaux(a.tauxVenteCnyMga)} · gain{" "}
+                            </span>
+                            <span className="text-green-700 tabular-nums dark:text-green-400">
+                              {formatMGA(cout.margeLigneMga)}
+                            </span>
+                            {cout.gainMinimumApplique && a.gainMinimumMga && (
+                              <span className="text-muted-foreground">
+                                {" "}
+                                (minimum {formatMGA(a.gainMinimumMga)} / unité)
+                              </span>
+                            )}
+                          </p>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
-              {c.articles.length > 0 && (
-                <p className="pt-3 text-xs text-muted-foreground">
-                  Le statut de la commande suit l&apos;article le moins avancé.{" "}
-                  {parColis
-                    ? "Frais d'application et de livraison répartis au prorata de la valeur de chaque article ; frais de chaque colis répartis entre ses articles."
-                    : "Frais (application, livraison, transitaire) répartis au prorata de la valeur de chaque article."}
-                </p>
-              )}
-            </CardContent>
-          </Card>
+                  );
+                })}
+                {c.articles.length > 0 && (
+                  <p className="pt-3 text-xs text-muted-foreground">
+                    Le statut de la commande suit l&apos;article le moins avancé.{" "}
+                    {parColis
+                      ? "Frais d'application et de livraison répartis au prorata de la valeur de chaque article ; frais de chaque colis répartis entre ses articles."
+                      : "Frais (application, livraison, transitaire) répartis au prorata de la valeur de chaque article."}
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+          </SelectionArticles>
         </div>
 
         <div className="space-y-4">

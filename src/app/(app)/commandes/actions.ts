@@ -7,13 +7,24 @@ import type { Prisma } from "@/generated/prisma/client";
 import type { StatutCommande } from "@/generated/prisma/enums";
 import { prisma } from "@/lib/prisma";
 import { estErreurCleEtrangere, exigerSession, type ResultatAction } from "@/lib/auth";
-import { montantArticlesCny, reglagesVenteArticle } from "@/lib/calculs";
+import Decimal from "decimal.js";
+import {
+  arrondi2,
+  dec,
+  type DecimalLike,
+  montantArticlesCny,
+  partDesArticles,
+  reglagesVenteArticle,
+  repartirFraisColis,
+} from "@/lib/calculs";
 import { getParametres } from "@/lib/commandes";
+import { formatDate, formatDevise } from "@/lib/format";
 import { STATUT_LABELS, statutDepuisArticles, statutsAnterieurs } from "@/lib/statuts";
 import {
   changementStatutArticleSchema,
   changementStatutSchema,
   commandeSchema,
+  deplacementArticlesSchema,
   dateDepuisInput,
   erreursDepuisZod,
   recuperationColisSchema,
@@ -281,8 +292,8 @@ export async function marquerRecuperee(
 }
 
 /**
- * Un colis arrivé (mode COLIS) : ses frais réels sont saisis et ses articles passent « Récupérée » ;
- * le statut de la commande est recalculé.
+ * Un ou plusieurs colis arrivés ensemble (mode COLIS) : le total payé au transitaire est réparti entre
+ * eux (voir repartirFraisColis), leurs articles passent « Récupérée » ; le statut de la commande est recalculé.
  */
 export async function marquerColisRecupere(
   input: z.input<typeof recuperationColisSchema>,
@@ -291,35 +302,229 @@ export async function marquerColisRecupere(
   const parsed = recuperationColisSchema.safeParse(input);
   if (!parsed.success) return { ok: false, erreurs: erreursDepuisZod(parsed.error) };
   const d = parsed.data;
-  const colis = await prisma.colis.findUnique({
-    where: { id: d.colisId },
-    select: { commandeId: true, codeSuivi: true, commande: { select: { deviseTransitaire: true } } },
+  const commande = await prisma.commande.findUnique({
+    where: { id: d.commandeId },
+    select: {
+      deviseTransitaire: true,
+      colis: {
+        where: { id: { in: d.colis.map((x) => x.id) } },
+        select: { id: true, codeSuivi: true, poidsKg: true, fraisEstime: true },
+      },
+    },
   });
-  if (!colis) return { ok: false, erreur: "Ce colis n'existe plus. Rechargez la page." };
-  if (colis.commande.deviseTransitaire === "USD" && !d.tauxDeviseTransitaireMga) {
+  if (!commande || commande.colis.length !== d.colis.length) {
+    return { ok: false, erreur: "Un colis n'existe plus. Rechargez la page." };
+  }
+  if (commande.deviseTransitaire === "USD" && !d.tauxDeviseTransitaireMga) {
     return { ok: false, erreurs: { tauxDeviseTransitaireMga: "Indiquez le taux USD → MGA appliqué" } };
   }
 
+  // Dans l'ordre saisi, avec le poids tel que saisi (pré-rempli) : la répartition est celle de l'aperçu
+  const colis = d.colis.map((saisi) => ({
+    ...commande.colis.find((c) => c.id === saisi.id)!,
+    poidsKg: saisi.poidsKg,
+  }));
+  const codes = colis.map((x) => x.codeSuivi);
+
+  // Un colis récupéré entre-temps (autre onglet) garde ses frais réels
+  const aRecuperer = await prisma.article.findMany({
+    where: { commandeId: d.commandeId, codeSuivi: { in: codes }, statut: { notIn: ["RECUPEREE", "ANNULEE"] } },
+    select: { codeSuivi: true },
+  });
+  const dejaRecupere = codes.find((code) => !aRecuperer.some((a) => a.codeSuivi === code));
+  if (dejaRecupere) {
+    return { ok: false, erreur: `Le colis ${dejaRecupere} est déjà récupéré. Rechargez la page.` };
+  }
+  const { parts } = repartirFraisColis(d.fraisReel, colis);
+
   await prisma.$transaction(async (tx) => {
-    await tx.colis.update({
-      where: { id: d.colisId },
-      data: { fraisReel: d.fraisReel, ...(d.poidsKg ? { poidsKg: d.poidsKg } : {}) },
-    });
-    if (colis.commande.deviseTransitaire !== "MGA" && d.tauxDeviseTransitaireMga) {
+    for (const [i, x] of colis.entries()) {
+      await tx.colis.update({
+        where: { id: x.id },
+        data: { fraisReel: parts[i].toFixed(2), poidsKg: x.poidsKg },
+      });
+    }
+    if (commande.deviseTransitaire !== "MGA" && d.tauxDeviseTransitaireMga) {
       await tx.commande.update({
-        where: { id: colis.commandeId },
+        where: { id: d.commandeId },
         data: { tauxDeviseTransitaireMga: d.tauxDeviseTransitaireMga },
       });
     }
     await tx.article.updateMany({
-      where: { commandeId: colis.commandeId, codeSuivi: colis.codeSuivi, statut: { notIn: ["RECUPEREE", "ANNULEE"] } },
+      where: { commandeId: d.commandeId, codeSuivi: { in: codes }, statut: { notIn: ["RECUPEREE", "ANNULEE"] } },
       data: { statut: "RECUPEREE" },
     });
-    await synchroniserStatutCommande(tx, colis.commandeId, {
+    await synchroniserStatutCommande(tx, d.commandeId, {
       date: dateDepuisInput(d.dateRecuperation),
-      note: `Colis ${colis.codeSuivi} récupéré — frais réels saisis`,
+      note:
+        codes.length === 1
+          ? `Colis ${codes[0]} récupéré — frais réels saisis`
+          : `Colis ${codes.join(", ")} récupérés ensemble — ${formatDevise(d.fraisReel, commande.deviseTransitaire)} au total`,
     });
   });
+
+  revalidatePath("/", "layout");
+  return { ok: true };
+}
+
+export type CommandeCibleDto = {
+  id: string;
+  application: string;
+  date: string;
+  statut: string;
+  nbArticles: number;
+  tauxCnyMga: string;
+};
+
+/** Commandes vers lesquelles déplacer des articles : les plus récentes, ou celles qui correspondent à la recherche. */
+export async function chercherCommandesCibles(commandeId: string, recherche: string): Promise<CommandeCibleDto[]> {
+  await exigerSession();
+  const q = recherche.trim().slice(0, 100);
+  const contient = { contains: q, mode: "insensitive" } as const;
+  const commandes = await prisma.commande.findMany({
+    where: {
+      id: { not: commandeId },
+      ...(q
+        ? {
+            OR: [
+              { application: { nom: contient } },
+              { articles: { some: { OR: [{ nom: contient }, { codeSuivi: contient }] } } },
+            ],
+          }
+        : {}),
+    },
+    orderBy: [{ dateCommande: "desc" }, { id: "desc" }],
+    take: 30,
+    select: {
+      id: true,
+      dateCommande: true,
+      statut: true,
+      tauxCnyMga: true,
+      application: { select: { nom: true } },
+      _count: { select: { articles: true } },
+    },
+  });
+  return commandes.map((c) => ({
+    id: c.id,
+    application: c.application.nom,
+    date: formatDate(c.dateCommande),
+    statut: STATUT_LABELS[c.statut],
+    nbArticles: c._count.articles,
+    tauxCnyMga: c.tauxCnyMga.toString(),
+  }));
+}
+
+const champsDeplacement = {
+  modeFraisTransitaire: true,
+  deviseTransitaire: true,
+  fraisAppCny: true,
+  fraisLivraisonCny: true,
+  fraisTransitaireEstime: true,
+  fraisTransitaireReel: true,
+  articles: { select: { id: true, nom: true, codeSuivi: true, quantite: true, prixUnitaireCny: true } },
+  colis: { select: { codeSuivi: true, fraisEstime: true, fraisReel: true } },
+} satisfies Prisma.CommandeSelect;
+
+/**
+ * Déplace des articles vers une autre commande. La part de chaque frais déjà engagé les suit (retirée
+ * de la commande d'origine, ajoutée à la cible), selon la règle de répartition de calculerCommande :
+ * le total payé ne change pas. Leur colis (un code de suivi) les suit aussi.
+ * Refusé quand la cible ne peut pas accueillir ces frais tels quels : autre devise ou autre mode de
+ * frais transitaire, frais réels d'un côté et estimés de l'autre, colis partagé ou code déjà présent.
+ * Les articles prennent le taux figé de la cible.
+ */
+export async function deplacerArticles(
+  input: z.input<typeof deplacementArticlesSchema>,
+): Promise<ResultatAction> {
+  await exigerSession();
+  const parsed = deplacementArticlesSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, erreurs: erreursDepuisZod(parsed.error) };
+  const { commandeSourceId, commandeCibleId, articleIds } = parsed.data;
+  if (commandeSourceId === commandeCibleId) {
+    return { ok: false, erreurs: { commandeCibleId: "Choisissez une autre commande" } };
+  }
+
+  const erreur = await prisma.$transaction(async (tx) => {
+    const source = await tx.commande.findUnique({ where: { id: commandeSourceId }, select: champsDeplacement });
+    const cible = await tx.commande.findUnique({ where: { id: commandeCibleId }, select: champsDeplacement });
+    if (!source || !cible) return "Une des deux commandes n'existe plus. Rechargez la page.";
+
+    const ids = new Set(articleIds);
+    const deplaces = source.articles.filter((a) => ids.has(a.id));
+    const restants = source.articles.filter((a) => !ids.has(a.id));
+    if (deplaces.length !== ids.size) return "Certains articles ont changé entre-temps. Rechargez la page.";
+
+    const memeDevise = source.deviseTransitaire === cible.deviseTransitaire;
+    const autreDevise = `la commande cible paie le transitaire en ${cible.deviseTransitaire} et celle-ci en ${source.deviseTransitaire}. Changez la devise de l'une des deux avant de déplacer.`;
+
+    const codes = [...new Set(deplaces.flatMap((a) => (a.codeSuivi ? [a.codeSuivi] : [])))];
+    for (const code of codes) {
+      const resteDansColis = restants.find((a) => a.codeSuivi === code);
+      if (resteDansColis) return `Le colis ${code} contient aussi « ${resteDansColis.nom} » : sélectionnez-le aussi.`;
+      if (cible.articles.some((a) => a.codeSuivi === code) || cible.colis.some((x) => x.codeSuivi === code)) {
+        return `Le code de suivi ${code} existe déjà dans la commande cible.`;
+      }
+      const colis = source.colis.find((x) => x.codeSuivi === code);
+      if (colis && (colis.fraisEstime || colis.fraisReel)) {
+        if (cible.modeFraisTransitaire !== "COLIS") {
+          return `Le colis ${code} a des frais transitaire, mais la commande cible compte ses frais pour toute la commande.`;
+        }
+        if (!memeDevise) return `Le colis ${code} a des frais transitaire, mais ${autreDevise}`;
+      }
+    }
+
+    // Part des articles déplacés dans les frais répartis sur toute la commande d'origine
+    const part = partDesArticles(source.articles, deplaces);
+    const partDe = (montant: DecimalLike) => {
+      const v = dec(montant);
+      return v ? arrondi2(v.mul(part)) : null;
+    };
+    const transfert = (vers: DecimalLike, montant: Decimal | null, signe: 1 | -1) =>
+      montant ? (dec(vers) ?? new Decimal(0)).add(montant.mul(signe)).toFixed(2) : undefined;
+
+    const partApp = partDe(source.fraisAppCny);
+    const partLivraison = partDe(source.fraisLivraisonCny);
+    let partEstime: Decimal | null = null;
+    let partReel: Decimal | null = null;
+    if (source.modeFraisTransitaire === "COMMANDE" && (source.fraisTransitaireEstime || source.fraisTransitaireReel)) {
+      if (cible.modeFraisTransitaire !== "COMMANDE") {
+        return "Les frais transitaire de cette commande sont comptés pour toute la commande, mais la commande cible les compte par colis.";
+      }
+      if (!memeDevise) return `Les frais transitaire ne peuvent pas suivre les articles : ${autreDevise}`;
+      if (!source.fraisTransitaireReel !== !cible.fraisTransitaireReel) {
+        return "Une seule des deux commandes a ses frais transitaire réels : impossible de mélanger frais réels et estimés.";
+      }
+      partEstime = partDe(source.fraisTransitaireEstime);
+      partReel = partDe(source.fraisTransitaireReel);
+    }
+
+    await tx.article.updateMany({ where: { id: { in: articleIds } }, data: { commandeId: commandeCibleId } });
+    if (codes.length > 0) {
+      await tx.colis.updateMany({
+        where: { commandeId: commandeSourceId, codeSuivi: { in: codes } },
+        data: { commandeId: commandeCibleId },
+      });
+    }
+    const cotes: { commandeId: string; c: typeof source; articles: typeof deplaces; signe: 1 | -1 }[] = [
+      { commandeId: commandeSourceId, c: source, articles: restants, signe: -1 },
+      { commandeId: commandeCibleId, c: cible, articles: [...cible.articles, ...deplaces], signe: 1 },
+    ];
+    for (const { commandeId, c, articles, signe } of cotes) {
+      await tx.commande.update({
+        where: { id: commandeId },
+        data: {
+          montantArticlesCny: montantArticlesCny(articles).toFixed(2),
+          fraisAppCny: transfert(c.fraisAppCny, partApp, signe),
+          fraisLivraisonCny: transfert(c.fraisLivraisonCny, partLivraison, signe),
+          fraisTransitaireEstime: transfert(c.fraisTransitaireEstime, partEstime, signe),
+          fraisTransitaireReel: transfert(c.fraisTransitaireReel, partReel, signe),
+        },
+      });
+      await synchroniserStatutCommande(tx, commandeId);
+    }
+    return null;
+  });
+  if (erreur) return { ok: false, erreur };
 
   revalidatePath("/", "layout");
   return { ok: true };
