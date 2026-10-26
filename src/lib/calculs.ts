@@ -41,6 +41,46 @@ export function montantArticlesCny(articles: ArticleCalcul[]): Decimal {
   return articles.reduce((acc, a) => acc.add(totalLigneCny(a)), new Decimal(0));
 }
 
+export type BaseRepartitionColis = "POIDS" | "ESTIME" | "EGAL";
+
+/**
+ * Part d'un groupe d'articles dans les frais répartis entre `tous`, selon la règle de calculerCommande :
+ * au prorata de la valeur, ou de la quantité si la valeur est nulle.
+ */
+export function partDesArticles(tous: ArticleCalcul[], groupe: ArticleCalcul[]): Decimal {
+  const baseValeur = montantArticlesCny(tous);
+  if (baseValeur.gt(0)) return montantArticlesCny(groupe).div(baseValeur);
+  const quantite = (liste: ArticleCalcul[]) => liste.reduce((acc, a) => acc.add(dec0(a.quantite)), new Decimal(0));
+  const baseQuantite = quantite(tous);
+  return baseQuantite.gt(0) ? quantite(groupe).div(baseQuantite) : new Decimal(0);
+}
+
+/**
+ * Répartit des frais payés en une fois pour plusieurs colis : au prorata du poids s'il est connu pour
+ * tous, sinon des frais estimés, sinon à parts égales. Arrondi au centime ; le reste va à la plus grosse
+ * part, qui ne peut donc pas devenir négative.
+ */
+export function repartirFraisColis(
+  total: DecimalLike,
+  colis: { poidsKg: DecimalLike; fraisEstime: DecimalLike }[],
+): { parts: Decimal[]; base: BaseRepartitionColis } {
+  const montant = dec0(total);
+  const positifs = (valeurs: (Decimal | null)[]) =>
+    valeurs.every((v) => v?.gt(0)) ? (valeurs as Decimal[]) : null;
+  const poids = positifs(colis.map((x) => dec(x.poidsKg)));
+  const estimes = positifs(colis.map((x) => dec(x.fraisEstime)));
+  const base: BaseRepartitionColis = poids ? "POIDS" : estimes ? "ESTIME" : "EGAL";
+  const coefs = poids ?? estimes ?? colis.map(() => new Decimal(1));
+  const somme = coefs.reduce((acc, c) => acc.add(c), new Decimal(0));
+  if (somme.isZero()) return { parts: [], base };
+
+  const parts = coefs.map((c) => arrondi2(montant.mul(c).div(somme)));
+  const reste = montant.sub(parts.reduce((acc, p) => acc.add(p), new Decimal(0)));
+  const plusGrosse = coefs.reduce((iMax, c, i) => (c.gt(coefs[iMax]) ? i : iMax), 0);
+  parts[plusGrosse] = parts[plusGrosse].add(reste);
+  return { parts, base };
+}
+
 /** Frais d'application calculés à partir de la configuration de l'application. */
 export function calculerFraisApp(
   fraisType: FraisTypeCode,
